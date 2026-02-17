@@ -1,7 +1,6 @@
-import { NextRequest } from "next/server";
 import { db } from "@/lib/db/client";
 import { tasks, categories, users, taskClaims, deliverables } from "@/lib/db/schema";
-import { eq, count, sql } from "drizzle-orm";
+import { eq, count } from "drizzle-orm";
 import { withAgentAuth } from "@/lib/api/handler";
 import { successResponse } from "@/lib/api/envelope";
 import { taskNotFoundError, invalidParameterError } from "@/lib/api/errors";

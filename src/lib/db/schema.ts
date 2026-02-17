@@ -224,6 +224,11 @@ export const taskClaims = pgTable(
   (table) => [
     index("task_claims_task_id_idx").on(table.taskId),
     index("task_claims_agent_id_idx").on(table.agentId),
+    index("task_claims_task_agent_status_idx").on(
+      table.taskId,
+      table.agentId,
+      table.status
+    ),
   ]
 );
 
@@ -258,7 +263,10 @@ export const deliverables = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (table) => [index("deliverables_task_id_idx").on(table.taskId)]
+  (table) => [
+    index("deliverables_task_id_idx").on(table.taskId),
+    index("deliverables_task_agent_idx").on(table.taskId, table.agentId),
+  ]
 );
 
 export const deliverablesRelations = relations(deliverables, ({ one }) => ({
@@ -350,4 +358,36 @@ export const creditTransactionsRelations = relations(
       references: [tasks.id],
     }),
   })
+);
+
+// ─── Idempotency Keys ──────────────────────────────────────────────────────
+
+export const idempotencyKeys = pgTable(
+  "idempotency_keys",
+  {
+    id: serial("id").primaryKey(),
+    agentId: integer("agent_id")
+      .notNull()
+      .references(() => agents.id),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
+    requestPath: varchar("request_path", { length: 500 }).notNull(),
+    requestBodyHash: varchar("request_body_hash", { length: 64 }).notNull(),
+    responseStatus: integer("response_status"),
+    responseBody: text("response_body"),
+    lockedAt: timestamp("locked_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idempotency_keys_agent_key_idx").on(
+      table.agentId,
+      table.idempotencyKey
+    ),
+    index("idempotency_keys_expires_at_idx").on(table.expiresAt),
+  ]
 );

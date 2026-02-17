@@ -12,6 +12,11 @@ import {
   RateLimitResult,
 } from "./rate-limit";
 import { rateLimitedError } from "./errors";
+import {
+  checkIdempotency,
+  completeIdempotency,
+  failIdempotency,
+} from "./idempotency";
 
 type AgentRouteHandler = (
   request: NextRequest,
@@ -45,7 +50,39 @@ async function runAgentAuth(
     return addRateLimitHeaders(errorResp, rateLimit);
   }
 
-  // Call the actual handler
+  // Idempotency — only for POST requests with an Idempotency-Key header
+  const idempotencyKey = request.headers.get("idempotency-key");
+  if (request.method === "POST" && idempotencyKey) {
+    const path = new URL(request.url).pathname;
+    const bodyText = await request.text();
+    const result = await checkIdempotency(agent.id, idempotencyKey, path, bodyText);
+
+    if (result.action === "replay") {
+      return addRateLimitHeaders(result.response, rateLimit);
+    }
+
+    if (result.action === "error") {
+      return addRateLimitHeaders(result.response, rateLimit);
+    }
+
+    // result.action === "proceed" — execute handler with reconstructed request
+    const newRequest = new NextRequest(request.url, {
+      method: request.method,
+      headers: request.headers,
+      body: bodyText,
+    });
+
+    try {
+      const response = await handler(newRequest, agent, rateLimit);
+      await completeIdempotency(result.recordId, response);
+      return addRateLimitHeaders(response, rateLimit);
+    } catch (err) {
+      await failIdempotency(result.recordId);
+      throw err;
+    }
+  }
+
+  // Call the actual handler (GET requests or POST without idempotency key)
   const response = await handler(request, agent, rateLimit);
   return addRateLimitHeaders(response, rateLimit);
 }
@@ -56,7 +93,7 @@ async function runAgentAuth(
  */
 export function withAgentAuth(handler: AgentRouteHandler) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return async (request: NextRequest, context: any): Promise<NextResponse> => {
+  return async (request: NextRequest, _context: any): Promise<NextResponse> => {
     return runAgentAuth(request, handler);
   };
 }

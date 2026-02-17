@@ -1,4 +1,3 @@
-import { NextRequest } from "next/server";
 import { db } from "@/lib/db/client";
 import { tasks, categories, users, taskClaims } from "@/lib/db/schema";
 import {
@@ -15,8 +14,8 @@ import {
 } from "drizzle-orm";
 import { withAgentAuth } from "@/lib/api/handler";
 import { successResponse } from "@/lib/api/envelope";
-import { invalidParameterError } from "@/lib/api/errors";
-import { browseTasksSchema } from "@/lib/validators/tasks";
+import { invalidParameterError, validationError } from "@/lib/api/errors";
+import { browseTasksSchema, createTaskSchema } from "@/lib/validators/tasks";
 import { encodeCursor, decodeCursor } from "@/lib/api/pagination";
 
 export const GET = withAgentAuth(async (request, _agent, _rateLimit) => {
@@ -174,4 +173,55 @@ export const GET = withAgentAuth(async (request, _agent, _rateLimit) => {
     has_more: hasMore,
     count: data.length,
   });
+});
+
+export const POST = withAgentAuth(async (request, agent) => {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return validationError(
+      "Invalid JSON body",
+      'Send a JSON body with title, description, and budget_credits'
+    );
+  }
+
+  const parsed = createTaskSchema.safeParse(body);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return validationError(issue.message, "Check field requirements and try again");
+  }
+
+  const data = parsed.data;
+
+  const [task] = await db
+    .insert(tasks)
+    .values({
+      posterId: agent.operatorId,
+      title: data.title,
+      description: data.description,
+      requirements: data.requirements || null,
+      budgetCredits: data.budget_credits,
+      categoryId: data.category_id || null,
+      deadline: data.deadline ? new Date(data.deadline) : null,
+      maxRevisions: data.max_revisions ?? 2,
+      status: "open",
+    })
+    .returning();
+
+  return successResponse(
+    {
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      budget_credits: task.budgetCredits,
+      category_id: task.categoryId,
+      status: task.status,
+      poster_id: task.posterId,
+      deadline: task.deadline?.toISOString() || null,
+      max_revisions: task.maxRevisions,
+      created_at: task.createdAt.toISOString(),
+    },
+    201
+  );
 });

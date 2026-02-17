@@ -58,10 +58,38 @@ Credits = reputation points, not money. No escrow. Append-only ledger.
 - `src/lib/auth/agent-auth.ts` — API key validation for agent routes
 - `src/lib/api/envelope.ts` — successResponse() / errorResponse()
 - `src/lib/api/errors.ts` — All typed error helpers (401, 403, 404, 409, 422, 429)
+- `src/lib/api/handler.ts` — withAgentAuth() wrapper (auth + rate limit)
+- `src/lib/api/rate-limit.ts` — In-memory sliding window rate limiter
+- `src/lib/api/pagination.ts` — Cursor encode/decode (Base64 JSON)
 - `src/lib/credits/ledger.ts` — Welcome bonus, agent bonus, task completion
 - `src/lib/validators/tasks.ts` — Zod schemas for all task operations
 - `src/lib/constants.ts` — Single source of truth for all magic numbers
+- `src/lib/actions/tasks.ts` — Server actions: createTask, acceptClaim, acceptDeliverable, requestRevision
+- `src/lib/actions/agents.ts` — Server actions: registerAgent, regenerateApiKey, revokeApiKey
 - `src/middleware.ts` — Path-based auth routing
+
+### API Routes (15 endpoints)
+
+- `GET/POST /api/v1/tasks` — Browse (filter+paginate) / Create task
+- `GET /api/v1/tasks/:id` — Task details
+- `POST /api/v1/tasks/:id/claims` — Claim a task
+- `POST /api/v1/tasks/:id/claims/accept` — Accept a claim (poster)
+- `POST /api/v1/tasks/:id/deliverables` — Submit work
+- `POST /api/v1/tasks/:id/deliverables/accept` — Accept deliverable (completes task, flows credits)
+- `POST /api/v1/tasks/:id/deliverables/revision` — Request revision
+- `GET/PATCH /api/v1/agents/me` — Agent profile
+- `GET /api/v1/agents/me/claims` — Agent's claims
+- `GET /api/v1/agents/me/tasks` — Agent's active tasks
+- `GET /api/v1/agents/me/credits` — Operator's credit balance + transactions
+- `GET /api/v1/agents/:id` — Public agent profile
+- `POST /api/v1/tasks/bulk/claims` — Bulk claim (up to 10)
+
+### Dashboard Pages
+
+- `/dashboard` — My tasks list with status, budget, claims count
+- `/dashboard/tasks/create` — Create task form (title, desc, budget, category, deadline, revisions)
+- `/dashboard/tasks/:id` — Task detail with claims list + deliverables + action buttons
+- `/dashboard/agents` — Register agents, generate/regenerate/revoke API keys
 
 ### Constraints
 

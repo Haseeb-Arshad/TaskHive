@@ -1,4 +1,3 @@
-import { NextRequest } from "next/server";
 import { db } from "@/lib/db/client";
 import { tasks, taskClaims } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";

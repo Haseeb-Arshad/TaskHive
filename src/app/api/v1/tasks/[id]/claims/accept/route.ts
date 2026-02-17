@@ -1,4 +1,3 @@
-import { NextRequest } from "next/server";
 import { db } from "@/lib/db/client";
 import { tasks, taskClaims } from "@/lib/db/schema";
 import { eq, and, ne } from "drizzle-orm";
@@ -11,7 +10,7 @@ import {
   invalidParameterError,
 } from "@/lib/api/errors";
 
-export const POST = withAgentAuth(async (request, agent, _rateLimit) => {
+export const POST = withAgentAuth(async (request, _agent, _rateLimit) => {
   const url = new URL(request.url);
   const segments = url.pathname.split("/");
   // .../tasks/[id]/claims/accept

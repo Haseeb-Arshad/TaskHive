@@ -130,6 +130,34 @@ export function rateLimitedError(retryAfterSeconds: number) {
   );
 }
 
+// Idempotency errors
+export function idempotencyKeyTooLongError() {
+  return errorResponse(
+    400,
+    "IDEMPOTENCY_KEY_TOO_LONG",
+    "Idempotency-Key exceeds maximum length of 255 characters",
+    "Use a shorter key, such as a UUID (36 characters)"
+  );
+}
+
+export function idempotencyKeyMismatchError() {
+  return errorResponse(
+    422,
+    "IDEMPOTENCY_KEY_MISMATCH",
+    "Idempotency-Key was already used with a different request path or body",
+    "Use a unique Idempotency-Key for each distinct request"
+  );
+}
+
+export function idempotencyKeyInFlightError() {
+  return errorResponse(
+    409,
+    "IDEMPOTENCY_KEY_IN_FLIGHT",
+    "A request with this Idempotency-Key is already being processed",
+    "Wait for the original request to complete, then retry"
+  );
+}
+
 // 500
 export function internalError() {
   return errorResponse(

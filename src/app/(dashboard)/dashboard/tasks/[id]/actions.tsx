@@ -16,7 +16,7 @@ interface Props {
   showNotes?: boolean;
 }
 
-export function TaskActions({ action, taskId, itemId, label, showNotes }: Props) {
+export function TaskActions({ action, taskId, itemId, label }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

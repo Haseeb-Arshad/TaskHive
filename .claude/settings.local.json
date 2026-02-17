@@ -7,7 +7,31 @@
       "Bash(npx tsc:*)",
       "Bash(git init:*)",
       "Bash(git add:*)",
-      "give all the permission"
+      "give all the permission",
+      "Bash(npm run db:push:*)",
+      "Bash(npm run db:seed:*)",
+      "Bash(npm run dev:*)",
+      "Bash(curl:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(npx tsx:*)",
+      "Bash(node -e:*)",
+      "Bash(API_KEY=\"th_agent_094a3700925a4e76f3ba35bdf2d70383831db91a99d51eca67496f9d1e5bf025\")",
+      "Bash(__NEW_LINE_e8217b905590585a__ echo \"=== TEST 2: Claim Task ===\")",
+      "Bash(__NEW_LINE_ecaa3c77b0229030__ curl -s -X POST http://localhost:3000/api/v1/tasks/1/claims -H \"Authorization: Bearer $API_KEY\" -H \"Content-Type: application/json\" -d \"{\"\"proposed_approach\"\":\"\"I will build a REST API using Express.js with proper CRUD routes\"\",\"\"estimated_hours\"\":4}\")",
+      "Bash(__NEW_LINE_d19f73b2a1145211__ curl -s -X POST http://localhost:3000/api/v1/tasks/1/claims -H \"Authorization: Bearer $API_KEY\" -H \"Content-Type: application/json\" -d \"{\"\"proposed_credits\"\":90,\"\"message\"\":\"\"I will build this using Express.js with full CRUD\"\"}\")",
+      "Bash(__NEW_LINE_48cce197eca8f51b__ curl -s -X POST http://localhost:3000/api/v1/tasks/1/deliverables -H \"Authorization: Bearer $API_KEY\" -H \"Content-Type: application/json\" -d \"{\"\"content\"\":\"\"Here is the completed REST API with Express.js:\\\\n\\\\nconst express = require\\(''express''\\);\\\\nconst app = express\\(\\);\\\\n\\\\n// CRUD endpoints\\\\napp.get\\(''/todos'', getTodos\\);\\\\napp.post\\(''/todos'', createTodo\\);\\\\napp.put\\(''/todos/:id'', updateTodo\\);\\\\napp.delete\\(''/todos/:id'', deleteTodo\\);\\\\n\\\\nFull implementation with error handling and validation included.\"\"}\")",
+      "Bash(__NEW_LINE_2a4e8e0bcb15fd17__ curl -s -X POST http://localhost:3000/api/v1/tasks/1/deliverables/accept -H \"Authorization: Bearer $API_KEY\" -H \"Content-Type: application/json\" -d \"{\"\"deliverable_id\"\":1}\")",
+      "Bash(__NEW_LINE_66a1aad45423b868__ echo \"=== Submit Revised Deliverable \\(Revision 2\\) ===\")",
+      "Bash(__NEW_LINE_aa6916806cfb9ffc__ echo \"=== Request Another Revision \\(should fail - max reached\\) ===\")",
+      "Bash(__NEW_LINE_0759f8ca849d7687__ echo \"=== Bulk Claims ===\")",
+      "Bash(__NEW_LINE_8de6ea44b5b8c6fc__ echo \"=== Page 2 with cursor ===\")",
+      "Bash(__NEW_LINE_890c93a61af4c9b6__ echo \"=== Rate Limit Headers ===\")",
+      "Bash(__NEW_LINE_4926131565ed4e54__ echo \"=== Invalid API Key ===\")",
+      "Bash(__NEW_LINE_4926131565ed4e54__ echo \"=== Missing Auth ===\")",
+      "Bash(__NEW_LINE_4926131565ed4e54__ echo \"=== Task Not Found ===\")",
+      "Bash(__NEW_LINE_3b3ade9572bb21cc__ echo \"=== Rate Limit Headers ===\")",
+      "Bash(__NEW_LINE_e1e88b68efe75b1b__ echo \"\")",
+      "Bash(npm run build:*)"
     ]
   }
 }

@@ -21,3 +21,8 @@ export const MIN_PAGE_SIZE = 1;
 
 // Bulk operations
 export const MAX_BULK_CLAIMS = 10;
+
+// Idempotency
+export const IDEMPOTENCY_KEY_MAX_LENGTH = 255;
+export const IDEMPOTENCY_KEY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+export const IDEMPOTENCY_LOCK_TIMEOUT_MS = 60 * 1000; // 1 minute

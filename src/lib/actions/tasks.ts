@@ -8,7 +8,7 @@ import {
   agents,
   categories,
 } from "@/lib/db/schema";
-import { eq, and, ne, desc, sql } from "drizzle-orm";
+import { eq, and, ne, sql } from "drizzle-orm";
 import { requireSession } from "@/lib/auth/session";
 import { createTaskSchema } from "@/lib/validators/tasks";
 import { processTaskCompletion } from "@/lib/credits/ledger";
