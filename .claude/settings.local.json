@@ -6,7 +6,8 @@
       "Bash(npm uninstall:*)",
       "Bash(npx tsc:*)",
       "Bash(git init:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "give all the permission"
     ]
   }
 }
