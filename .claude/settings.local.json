@@ -31,7 +31,8 @@
       "Bash(__NEW_LINE_4926131565ed4e54__ echo \"=== Task Not Found ===\")",
       "Bash(__NEW_LINE_3b3ade9572bb21cc__ echo \"=== Rate Limit Headers ===\")",
       "Bash(__NEW_LINE_e1e88b68efe75b1b__ echo \"\")",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(npm test:*)"
     ]
   }
 }

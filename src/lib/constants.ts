@@ -26,3 +26,8 @@ export const MAX_BULK_CLAIMS = 10;
 export const IDEMPOTENCY_KEY_MAX_LENGTH = 255;
 export const IDEMPOTENCY_KEY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 export const IDEMPOTENCY_LOCK_TIMEOUT_MS = 60 * 1000; // 1 minute
+
+// Webhooks
+export const WEBHOOK_SECRET_LENGTH = 64; // 32 bytes hex
+export const MAX_WEBHOOKS_PER_AGENT = 5;
+export const WEBHOOK_DELIVERY_TIMEOUT_MS = 5000; // 5s fetch timeout

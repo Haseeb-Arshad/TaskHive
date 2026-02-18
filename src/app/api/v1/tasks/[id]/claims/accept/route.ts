@@ -8,9 +8,11 @@ import {
   conflictError,
   validationError,
   invalidParameterError,
+  forbiddenError,
 } from "@/lib/api/errors";
+import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
 
-export const POST = withAgentAuth(async (request, _agent, _rateLimit) => {
+export const POST = withAgentAuth(async (request, agent, _rateLimit) => {
   const url = new URL(request.url);
   const segments = url.pathname.split("/");
   // .../tasks/[id]/claims/accept
@@ -55,6 +57,14 @@ export const POST = withAgentAuth(async (request, _agent, _rateLimit) => {
 
   if (!task) return taskNotFoundError(taskId);
 
+  // Only the task poster can accept claims
+  if (task.posterId !== agent.operatorId) {
+    return forbiddenError(
+      "Only the task poster can accept claims",
+      "You must be the poster of this task to accept claims"
+    );
+  }
+
   if (task.status !== "open") {
     return conflictError(
       "TASK_NOT_OPEN",
@@ -84,33 +94,88 @@ export const POST = withAgentAuth(async (request, _agent, _rateLimit) => {
     );
   }
 
-  // Accept this claim
-  await db
-    .update(taskClaims)
-    .set({ status: "accepted" })
-    .where(eq(taskClaims.id, claimId));
+  // Accept claim, reject others, and update task atomically (with optimistic lock)
+  let txConflict = false;
+  try {
+    await db.transaction(async (tx) => {
+      // Optimistic lock: only update task if still "open"
+      const updated = await tx
+        .update(tasks)
+        .set({
+          status: "claimed",
+          claimedByAgentId: claim.agentId,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(tasks.id, taskId), eq(tasks.status, "open")))
+        .returning({ id: tasks.id });
 
-  // Reject all other pending claims
-  await db
-    .update(taskClaims)
-    .set({ status: "rejected" })
-    .where(
-      and(
-        eq(taskClaims.taskId, taskId),
-        ne(taskClaims.id, claimId),
-        eq(taskClaims.status, "pending")
-      )
+      if (updated.length === 0) {
+        txConflict = true;
+        return;
+      }
+
+      // Accept this claim
+      await tx
+        .update(taskClaims)
+        .set({ status: "accepted" })
+        .where(eq(taskClaims.id, claimId));
+
+      // Reject all other pending claims
+      await tx
+        .update(taskClaims)
+        .set({ status: "rejected" })
+        .where(
+          and(
+            eq(taskClaims.taskId, taskId),
+            ne(taskClaims.id, claimId),
+            eq(taskClaims.status, "pending")
+          )
+        );
+    });
+  } catch {
+    txConflict = true;
+  }
+
+  if (txConflict) {
+    return conflictError(
+      "TASK_NOT_OPEN",
+      `Task ${taskId} is no longer open`,
+      "Another claim was accepted concurrently"
     );
+  }
 
-  // Update task to claimed
-  await db
-    .update(tasks)
-    .set({
-      status: "claimed",
-      claimedByAgentId: claim.agentId,
-      updatedAt: new Date(),
-    })
-    .where(eq(tasks.id, taskId));
+  // Dispatch webhook for accepted claim
+  void dispatchWebhookEvent(claim.agentId, "claim.accepted", {
+    task_id: taskId,
+    claim_id: claimId,
+    agent_id: claim.agentId,
+  });
+
+  // Dispatch webhook for rejected claims (fire-and-forget, non-critical)
+  void (async () => {
+    try {
+      const rejectedClaims = await db
+        .select({ agentId: taskClaims.agentId, id: taskClaims.id })
+        .from(taskClaims)
+        .where(
+          and(
+            eq(taskClaims.taskId, taskId),
+            ne(taskClaims.id, claimId),
+            eq(taskClaims.status, "rejected")
+          )
+        );
+
+      for (const rc of rejectedClaims) {
+        void dispatchWebhookEvent(rc.agentId, "claim.rejected", {
+          task_id: taskId,
+          claim_id: rc.id,
+          agent_id: rc.agentId,
+        });
+      }
+    } catch {
+      // Non-critical: webhook dispatch failure should not affect the response
+    }
+  })();
 
   return successResponse({
     task_id: taskId,

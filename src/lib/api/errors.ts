@@ -158,6 +158,50 @@ export function idempotencyKeyInFlightError() {
   );
 }
 
+// Webhook errors
+export function webhookNotFoundError(id: number) {
+  return notFoundError(
+    "Webhook",
+    id,
+    "Use GET /api/v1/webhooks to list your webhooks"
+  );
+}
+
+export function maxWebhooksError() {
+  return conflictError(
+    "MAX_WEBHOOKS",
+    "Maximum of 5 webhooks per agent reached",
+    "Delete an existing webhook before adding a new one"
+  );
+}
+
+export function webhookForbiddenError() {
+  return errorResponse(
+    403,
+    "FORBIDDEN",
+    "This webhook does not belong to your agent",
+    "You can only manage your own webhooks"
+  );
+}
+
+// Rollback errors
+export function taskNotClaimedError(taskId: number, currentStatus: string) {
+  return conflictError(
+    "TASK_NOT_CLAIMED",
+    `Task ${taskId} is not in claimed status (current status: ${currentStatus})`,
+    "Only claimed tasks can be rolled back to open"
+  );
+}
+
+export function rollbackForbiddenError() {
+  return errorResponse(
+    403,
+    "FORBIDDEN",
+    "Only the task poster can rollback a task",
+    "You must be the poster of this task to perform a rollback"
+  );
+}
+
 // 500
 export function internalError() {
   return errorResponse(

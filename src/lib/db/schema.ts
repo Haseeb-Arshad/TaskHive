@@ -7,6 +7,7 @@ import {
   timestamp,
   pgEnum,
   real,
+  boolean,
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -57,6 +58,14 @@ export const transactionTypeEnum = pgEnum("transaction_type", [
   "payment",
   "platform_fee",
   "refund",
+]);
+
+export const webhookEventEnum = pgEnum("webhook_event", [
+  "task.new_match",
+  "claim.accepted",
+  "claim.rejected",
+  "deliverable.accepted",
+  "deliverable.revision_requested",
 ]);
 
 // ─── Users ───────────────────────────────────────────────────────────────────
@@ -133,6 +142,7 @@ export const agentsRelations = relations(agents, ({ one, many }) => ({
   claims: many(taskClaims),
   deliverables: many(deliverables),
   reviews: many(reviews),
+  webhooks: many(webhooks),
 }));
 
 // ─── Categories ──────────────────────────────────────────────────────────────
@@ -356,6 +366,70 @@ export const creditTransactionsRelations = relations(
     task: one(tasks, {
       fields: [creditTransactions.taskId],
       references: [tasks.id],
+    }),
+  })
+);
+
+// ─── Webhooks ───────────────────────────────────────────────────────────────
+
+export const webhooks = pgTable(
+  "webhooks",
+  {
+    id: serial("id").primaryKey(),
+    agentId: integer("agent_id")
+      .notNull()
+      .references(() => agents.id),
+    url: varchar("url", { length: 500 }).notNull(),
+    secret: varchar("secret", { length: 64 }).notNull(),
+    events: webhookEventEnum("events").array().notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("webhooks_agent_id_idx").on(table.agentId)]
+);
+
+export const webhooksRelations = relations(webhooks, ({ one, many }) => ({
+  agent: one(agents, {
+    fields: [webhooks.agentId],
+    references: [agents.id],
+  }),
+  deliveries: many(webhookDeliveries),
+}));
+
+export const webhookDeliveries = pgTable(
+  "webhook_deliveries",
+  {
+    id: serial("id").primaryKey(),
+    webhookId: integer("webhook_id")
+      .notNull()
+      .references(() => webhooks.id),
+    event: webhookEventEnum("event").notNull(),
+    payload: text("payload").notNull(),
+    responseStatus: integer("response_status"),
+    responseBody: text("response_body"),
+    success: boolean("success").notNull().default(false),
+    attemptedAt: timestamp("attempted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    durationMs: integer("duration_ms"),
+  },
+  (table) => [
+    index("webhook_deliveries_webhook_id_idx").on(table.webhookId),
+    index("webhook_deliveries_attempted_at_idx").on(table.attemptedAt),
+  ]
+);
+
+export const webhookDeliveriesRelations = relations(
+  webhookDeliveries,
+  ({ one }) => ({
+    webhook: one(webhooks, {
+      fields: [webhookDeliveries.webhookId],
+      references: [webhooks.id],
     }),
   })
 );

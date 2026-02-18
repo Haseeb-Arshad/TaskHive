@@ -1,6 +1,6 @@
 import { db } from "@/lib/db/client";
 import { tasks, deliverables, agents } from "@/lib/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { withAgentAuth } from "@/lib/api/handler";
 import { successResponse } from "@/lib/api/envelope";
 import {
@@ -8,10 +8,12 @@ import {
   conflictError,
   validationError,
   invalidParameterError,
+  forbiddenError,
 } from "@/lib/api/errors";
 import { processTaskCompletion } from "@/lib/credits/ledger";
+import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
 
-export const POST = withAgentAuth(async (request, _agent, _rateLimit) => {
+export const POST = withAgentAuth(async (request, agent, _rateLimit) => {
   const url = new URL(request.url);
   const segments = url.pathname.split("/");
   const taskIdIdx = segments.indexOf("tasks") + 1;
@@ -41,6 +43,7 @@ export const POST = withAgentAuth(async (request, _agent, _rateLimit) => {
     .select({
       id: tasks.id,
       status: tasks.status,
+      posterId: tasks.posterId,
       budgetCredits: tasks.budgetCredits,
       claimedByAgentId: tasks.claimedByAgentId,
     })
@@ -49,6 +52,14 @@ export const POST = withAgentAuth(async (request, _agent, _rateLimit) => {
     .limit(1);
 
   if (!task) return taskNotFoundError(taskId);
+
+  // Only the task poster can accept deliverables
+  if (task.posterId !== agent.operatorId) {
+    return forbiddenError(
+      "Only the task poster can accept deliverables",
+      "You must be the poster of this task to accept deliverables"
+    );
+  }
 
   if (task.status !== "delivered") {
     return conflictError(
@@ -73,20 +84,42 @@ export const POST = withAgentAuth(async (request, _agent, _rateLimit) => {
     );
   }
 
-  // Accept deliverable
-  await db
-    .update(deliverables)
-    .set({ status: "accepted" })
-    .where(eq(deliverables.id, deliverableId));
-
-  // Complete task
-  await db
-    .update(tasks)
-    .set({ status: "completed", updatedAt: new Date() })
-    .where(eq(tasks.id, taskId));
-
-  // Process credits and increment agent stats
+  // Accept deliverable, complete task atomically (with optimistic lock)
   let creditResult = null;
+  let txConflict = false;
+  try {
+    await db.transaction(async (tx) => {
+      // Optimistic lock: only update task if still "delivered"
+      const updated = await tx
+        .update(tasks)
+        .set({ status: "completed", updatedAt: new Date() })
+        .where(and(eq(tasks.id, taskId), eq(tasks.status, "delivered")))
+        .returning({ id: tasks.id });
+
+      if (updated.length === 0) {
+        txConflict = true;
+        return;
+      }
+
+      // Accept deliverable
+      await tx
+        .update(deliverables)
+        .set({ status: "accepted" })
+        .where(eq(deliverables.id, deliverableId));
+    });
+  } catch {
+    txConflict = true;
+  }
+
+  if (txConflict) {
+    return conflictError(
+      "INVALID_STATUS",
+      `Task ${taskId} is no longer in delivered state`,
+      "The deliverable may have already been accepted"
+    );
+  }
+
+  // Process credits and increment agent stats (outside transaction since processTaskCompletion has its own)
   if (task.claimedByAgentId) {
     const [agentData] = await db
       .select({ operatorId: agents.operatorId })
@@ -110,6 +143,16 @@ export const POST = withAgentAuth(async (request, _agent, _rateLimit) => {
         })
         .where(eq(agents.id, task.claimedByAgentId));
     }
+  }
+
+  // Dispatch webhook for deliverable accepted
+  if (task.claimedByAgentId) {
+    void dispatchWebhookEvent(task.claimedByAgentId, "deliverable.accepted", {
+      task_id: taskId,
+      deliverable_id: deliverableId,
+      credits_paid: creditResult?.payment || 0,
+      platform_fee: creditResult?.fee || 0,
+    });
   }
 
   return successResponse({

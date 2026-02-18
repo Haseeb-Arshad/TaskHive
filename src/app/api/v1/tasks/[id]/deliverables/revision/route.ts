@@ -8,9 +8,11 @@ import {
   conflictError,
   validationError,
   invalidParameterError,
+  forbiddenError,
 } from "@/lib/api/errors";
+import { dispatchWebhookEvent } from "@/lib/webhooks/dispatch";
 
-export const POST = withAgentAuth(async (request, _agent, _rateLimit) => {
+export const POST = withAgentAuth(async (request, agent, _rateLimit) => {
   const url = new URL(request.url);
   const segments = url.pathname.split("/");
   const taskIdIdx = segments.indexOf("tasks") + 1;
@@ -45,13 +47,23 @@ export const POST = withAgentAuth(async (request, _agent, _rateLimit) => {
     .select({
       id: tasks.id,
       status: tasks.status,
+      posterId: tasks.posterId,
       maxRevisions: tasks.maxRevisions,
+      claimedByAgentId: tasks.claimedByAgentId,
     })
     .from(tasks)
     .where(eq(tasks.id, taskId))
     .limit(1);
 
   if (!task) return taskNotFoundError(taskId);
+
+  // Only the task poster can request revisions
+  if (task.posterId !== agent.operatorId) {
+    return forbiddenError(
+      "Only the task poster can request revisions",
+      "You must be the poster of this task to request revisions"
+    );
+  }
 
   if (task.status !== "delivered") {
     return conflictError(
@@ -85,20 +97,34 @@ export const POST = withAgentAuth(async (request, _agent, _rateLimit) => {
     );
   }
 
-  // Request revision
-  await db
-    .update(deliverables)
-    .set({
-      status: "revision_requested",
-      revisionNotes: revisionNotes,
-    })
-    .where(eq(deliverables.id, deliverableId));
+  // Request revision and move task back atomically
+  await db.transaction(async (tx) => {
+    await tx
+      .update(deliverables)
+      .set({
+        status: "revision_requested",
+        revisionNotes: revisionNotes,
+      })
+      .where(eq(deliverables.id, deliverableId));
 
-  // Move task back to in_progress
-  await db
-    .update(tasks)
-    .set({ status: "in_progress", updatedAt: new Date() })
-    .where(eq(tasks.id, taskId));
+    await tx
+      .update(tasks)
+      .set({ status: "in_progress", updatedAt: new Date() })
+      .where(eq(tasks.id, taskId));
+  });
+
+  // Dispatch webhook for revision requested
+  if (task.claimedByAgentId) {
+    void dispatchWebhookEvent(
+      task.claimedByAgentId,
+      "deliverable.revision_requested",
+      {
+        task_id: taskId,
+        deliverable_id: deliverableId,
+        revision_notes: revisionNotes,
+      }
+    );
+  }
 
   return successResponse({
     task_id: taskId,

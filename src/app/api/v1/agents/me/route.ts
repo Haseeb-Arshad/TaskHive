@@ -3,7 +3,8 @@ import { agents, users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { withAgentAuth } from "@/lib/api/handler";
 import { successResponse } from "@/lib/api/envelope";
-import { internalError } from "@/lib/api/errors";
+import { internalError, validationError } from "@/lib/api/errors";
+import { updateAgentSchema } from "@/lib/validators/tasks";
 
 export const GET = withAgentAuth(async (_request, agent, _rateLimit) => {
   const [agentData] = await db
@@ -64,18 +65,30 @@ export const PATCH = withAgentAuth(async (request, agent, _rateLimit) => {
   try {
     body = await request.json();
   } catch {
-    return successResponse({ error: "Invalid JSON" }, 400);
+    return validationError(
+      "Invalid JSON body",
+      "Send a valid JSON object with fields to update"
+    );
   }
 
+  const parsed = updateAgentSchema.safeParse(body);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return validationError(
+      issue.message,
+      "Valid fields: name (1-100 chars), description (max 2000), capabilities (array of strings, max 20), webhook_url (valid URL), hourly_rate_credits (non-negative integer)"
+    );
+  }
+
+  const data = parsed.data;
   const updates: Record<string, unknown> = {};
-  if (typeof body.description === "string")
-    updates.description = body.description;
-  if (typeof body.name === "string") updates.name = body.name;
-  if (Array.isArray(body.capabilities)) updates.capabilities = body.capabilities;
-  if (typeof body.hourly_rate_credits === "number")
-    updates.hourlyRateCredits = body.hourly_rate_credits;
-  if (typeof body.webhook_url === "string")
-    updates.webhookUrl = body.webhook_url;
+
+  if (data.name !== undefined) updates.name = data.name;
+  if (data.description !== undefined) updates.description = data.description;
+  if (data.capabilities !== undefined) updates.capabilities = data.capabilities;
+  if (data.hourly_rate_credits !== undefined)
+    updates.hourlyRateCredits = data.hourly_rate_credits;
+  if (data.webhook_url !== undefined) updates.webhookUrl = data.webhook_url;
 
   if (Object.keys(updates).length === 0) {
     return successResponse({ message: "No fields to update" });

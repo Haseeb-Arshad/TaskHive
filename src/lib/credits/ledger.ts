@@ -18,29 +18,31 @@ async function addCredits(
   description: string,
   taskId?: number
 ): Promise<{ balanceAfter: number }> {
-  // Update balance and get new value
-  const [updated] = await db
-    .update(users)
-    .set({
-      creditBalance: sql`${users.creditBalance} + ${amount}`,
-      updatedAt: new Date(),
-    })
-    .where(eq(users.id, userId))
-    .returning({ creditBalance: users.creditBalance });
+  return db.transaction(async (tx) => {
+    // Update balance and get new value
+    const [updated] = await tx
+      .update(users)
+      .set({
+        creditBalance: sql`${users.creditBalance} + ${amount}`,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId))
+      .returning({ creditBalance: users.creditBalance });
 
-  const balanceAfter = updated.creditBalance;
+    const balanceAfter = updated.creditBalance;
 
-  // Record in append-only ledger
-  await db.insert(creditTransactions).values({
-    userId,
-    amount,
-    type,
-    taskId: taskId ?? null,
-    description,
-    balanceAfter,
+    // Record in append-only ledger
+    await tx.insert(creditTransactions).values({
+      userId,
+      amount,
+      type,
+      taskId: taskId ?? null,
+      description,
+      balanceAfter,
+    });
+
+    return { balanceAfter };
   });
-
-  return { balanceAfter };
 }
 
 /**
@@ -73,24 +75,39 @@ export async function processTaskCompletion(
   const fee = Math.floor(budgetCredits * (PLATFORM_FEE_PERCENT / 100));
   const payment = budgetCredits - fee;
 
-  // Record the payment to operator
-  const result = await addCredits(
-    operatorId,
-    payment,
-    "payment",
-    `Task ${taskId} completion payment`,
-    taskId
-  );
+  return db.transaction(async (tx) => {
+    // Update balance and get new value
+    const [updated] = await tx
+      .update(users)
+      .set({
+        creditBalance: sql`${users.creditBalance} + ${payment}`,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, operatorId))
+      .returning({ creditBalance: users.creditBalance });
 
-  // Record platform fee as a tracking entry (fee stays on platform)
-  await db.insert(creditTransactions).values({
-    userId: operatorId,
-    amount: 0,
-    type: "platform_fee",
-    taskId,
-    description: `Platform fee: ${fee} credits (${PLATFORM_FEE_PERCENT}% of ${budgetCredits})`,
-    balanceAfter: result.balanceAfter,
+    const balanceAfter = updated.creditBalance;
+
+    // Record the payment to operator
+    await tx.insert(creditTransactions).values({
+      userId: operatorId,
+      amount: payment,
+      type: "payment",
+      taskId,
+      description: `Task ${taskId} completion payment`,
+      balanceAfter,
+    });
+
+    // Record platform fee as a tracking entry (fee stays on platform)
+    await tx.insert(creditTransactions).values({
+      userId: operatorId,
+      amount: 0,
+      type: "platform_fee",
+      taskId,
+      description: `Platform fee: ${fee} credits (${PLATFORM_FEE_PERCENT}% of ${budgetCredits})`,
+      balanceAfter,
+    });
+
+    return { payment, fee, balanceAfter };
   });
-
-  return { payment, fee, balanceAfter: result.balanceAfter };
 }

@@ -50,7 +50,36 @@ export const browseTasksSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional().default(20),
 });
 
+export const updateAgentSchema = z
+  .object({
+    name: z
+      .string()
+      .min(1, "Name must be at least 1 character")
+      .max(100, "Name must be at most 100 characters")
+      .optional(),
+    description: z
+      .string()
+      .max(2000, "Description must be at most 2000 characters")
+      .optional(),
+    capabilities: z
+      .array(z.string().min(1).max(100))
+      .max(20, "Maximum 20 capabilities allowed")
+      .optional(),
+    webhook_url: z
+      .union([
+        z.string().url("webhook_url must be a valid URL"),
+        z.literal(""),
+      ])
+      .optional(),
+    hourly_rate_credits: z
+      .number()
+      .int("hourly_rate_credits must be a whole number")
+      .min(0, "hourly_rate_credits must be non-negative")
+      .optional(),
+  });
+
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 export type CreateClaimInput = z.infer<typeof createClaimSchema>;
 export type CreateDeliverableInput = z.infer<typeof createDeliverableSchema>;
 export type BrowseTasksInput = z.infer<typeof browseTasksSchema>;
+export type UpdateAgentInput = z.infer<typeof updateAgentSchema>;

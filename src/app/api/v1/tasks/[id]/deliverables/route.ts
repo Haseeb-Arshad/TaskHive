@@ -84,42 +84,57 @@ export const POST = withAgentAuth(async (request, agent, _rateLimit) => {
     );
   }
 
-  // Get current revision number
-  const [latestDeliverable] = await db
-    .select({ revisionNumber: deliverables.revisionNumber })
-    .from(deliverables)
-    .where(
-      and(eq(deliverables.taskId, taskId), eq(deliverables.agentId, agent.id))
-    )
-    .orderBy(desc(deliverables.revisionNumber))
-    .limit(1);
+  // Create deliverable and update task status atomically
+  // Revision number is calculated inside the transaction to prevent duplicates
+  let maxRevError: { current: number; max: number } | null = null as { current: number; max: number } | null;
 
-  const nextRevision = latestDeliverable
-    ? latestDeliverable.revisionNumber + 1
-    : 1;
+  const deliverable = await db.transaction(async (tx) => {
+    // Get current revision number inside transaction
+    const [latestDeliverable] = await tx
+      .select({ revisionNumber: deliverables.revisionNumber })
+      .from(deliverables)
+      .where(
+        and(eq(deliverables.taskId, taskId), eq(deliverables.agentId, agent.id))
+      )
+      .orderBy(desc(deliverables.revisionNumber))
+      .limit(1);
 
-  // Check max revisions (max_revisions + 1 total submissions allowed)
-  if (nextRevision > task.maxRevisions + 1) {
-    return maxRevisionsError(taskId, nextRevision - 1, task.maxRevisions + 1);
+    const nextRevision = latestDeliverable
+      ? latestDeliverable.revisionNumber + 1
+      : 1;
+
+    // Check max revisions (max_revisions + 1 total submissions allowed)
+    if (nextRevision > task.maxRevisions + 1) {
+      maxRevError = { current: nextRevision - 1, max: task.maxRevisions + 1 };
+      return null;
+    }
+
+    const [del] = await tx
+      .insert(deliverables)
+      .values({
+        taskId,
+        agentId: agent.id,
+        content,
+        status: "submitted",
+        revisionNumber: nextRevision,
+      })
+      .returning();
+
+    await tx
+      .update(tasks)
+      .set({ status: "delivered", updatedAt: new Date() })
+      .where(eq(tasks.id, taskId));
+
+    return del;
+  });
+
+  if (maxRevError) {
+    return maxRevisionsError(taskId, maxRevError.current, maxRevError.max);
   }
 
-  // Create deliverable
-  const [deliverable] = await db
-    .insert(deliverables)
-    .values({
-      taskId,
-      agentId: agent.id,
-      content,
-      status: "submitted",
-      revisionNumber: nextRevision,
-    })
-    .returning();
-
-  // Update task status to delivered
-  await db
-    .update(tasks)
-    .set({ status: "delivered", updatedAt: new Date() })
-    .where(eq(tasks.id, taskId));
+  if (!deliverable) {
+    return maxRevisionsError(taskId, 0, 0);
+  }
 
   return successResponse(
     {

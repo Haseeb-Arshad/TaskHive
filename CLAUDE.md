@@ -8,94 +8,119 @@ TaskHive is a freelancer marketplace where humans post tasks and AI agents brows
 
 Specifications live in `../taskhive-hiring-test/` — read those files for detailed requirements.
 
-## Stack
+## Recommended Stack
 
-- **Framework:** Next.js 15 (App Router) with TypeScript (`strict: true`)
-- **Database:** Supabase PostgreSQL + Drizzle ORM (`postgres.js` driver)
-- **Auth:** NextAuth v4 (human sessions) + custom API key Bearer tokens (agents)
+- **Framework:** Next.js 14+ (App Router) with TypeScript (`strict: true`)
+- **Database:** PostgreSQL (Supabase)
+- **ORM:** Drizzle ORM
 - **Validation:** Zod
-- **Styling:** Tailwind CSS v4
+- **Auth:** Session-based for humans (NextAuth.js or Lucia), API key Bearer tokens for agents
 - **Deployment:** Vercel
 
-## Commands
+## Build & Development Commands
 
 ```bash
-npm run dev          # Start dev server (Turbopack)
+npm run dev          # Start local dev server
 npm run build        # Production build
 npm run lint         # ESLint
-npm run db:push      # Push schema to Supabase
-npm run db:generate  # Generate migrations
-npm run db:seed      # Seed categories
-npm run db:studio    # Drizzle Studio (DB browser)
+npx drizzle-kit push # Push schema to database
+npx drizzle-kit generate  # Generate migrations
 ```
 
 ## Architecture
 
-### Two Auth Systems (middleware.ts routes by path)
+### Two Auth Systems
 
-- **Human (Web UI):** NextAuth JWT sessions, protects `/dashboard/*`
-- **Agent (REST API):** Bearer token `th_agent_` + 64 hex, protects `/api/v1/*`
-- API keys stored as SHA-256 hashes; raw key shown once on generation
+- **Human (Web UI):** Session-based (email+password), protects `/dashboard/*` routes
+- **Agent (REST API):** Bearer token with API keys (`th_agent_` + 64 hex chars), protects `/api/v1/*` routes
+- API keys are stored as SHA-256 hashes; raw key shown only once on generation
+- Middleware routes to the correct auth based on request path
 
-### Core Loop
+### Core Loop (5-step state machine)
 
-Post task (open) → Agent browses → Agent claims (pending) → Poster accepts claim (task→claimed) → Agent delivers (task→delivered) → Poster accepts (task→completed, credits flow)
+Post task (open) → Agent browses → Agent claims (pending claim, task stays open) → Poster accepts claim (task→claimed, other claims→rejected) → Agent delivers (task→delivered) → Poster accepts deliverable (task→completed, credits flow)
 
-### API Envelope
+### API Response Envelope
 
-All responses: `{ ok, data, meta }` or `{ ok, error: { code, message, suggestion }, meta }`. Every error **must** include `suggestion`.
+Every API response uses `{ ok, data, meta }` for success or `{ ok, error: { code, message, suggestion }, meta }` for errors. Every error **must** include a `suggestion` field. List endpoints include cursor-based pagination in `meta`.
 
-### Credit System (lib/credits/ledger.ts)
+### Credit System
 
-Credits = reputation points, not money. No escrow. Append-only ledger.
-- New user: +500 | Agent registered: +100 to operator | Task completed: budget - 10% fee
+Credits are reputation points, not money. No escrow. Budget is a promise.
+- New user: +500 welcome credits
+- Agent registered: +100 to operator
+- Task completed: operator gets `budget - floor(budget * 0.10)`
+- Ledger is append-only; every entry has `balance_after` snapshot
+- Transaction types: `bonus`, `payment`, `platform_fee`, `deposit`, `refund`
 
-### Key Files
+### Data Model (8 core entities + 1 optional)
 
-- `src/lib/db/schema.ts` — All 8 entities with enums, relations, indexes
-- `src/lib/db/client.ts` — Drizzle + postgres.js connection
-- `src/lib/auth/options.ts` — NextAuth config (credentials provider, JWT)
-- `src/lib/auth/agent-auth.ts` — API key validation for agent routes
-- `src/lib/api/envelope.ts` — successResponse() / errorResponse()
-- `src/lib/api/errors.ts` — All typed error helpers (401, 403, 404, 409, 422, 429)
-- `src/lib/api/handler.ts` — withAgentAuth() wrapper (auth + rate limit)
-- `src/lib/api/rate-limit.ts` — In-memory sliding window rate limiter
-- `src/lib/api/pagination.ts` — Cursor encode/decode (Base64 JSON)
-- `src/lib/credits/ledger.ts` — Welcome bonus, agent bonus, task completion
-- `src/lib/validators/tasks.ts` — Zod schemas for all task operations
-- `src/lib/constants.ts` — Single source of truth for all magic numbers
-- `src/lib/actions/tasks.ts` — Server actions: createTask, acceptClaim, acceptDeliverable, requestRevision
-- `src/lib/actions/agents.ts` — Server actions: registerAgent, regenerateApiKey, revokeApiKey
-- `src/middleware.ts` — Path-based auth routing
+User, Agent, Task, TaskClaim, Deliverable, Review, CreditTransaction, Category, Webhook (Tier 3). All entities expose **integer IDs** in the API (not UUIDs). See `../taskhive-hiring-test/specs/data-model.md` for full schema.
 
-### API Routes (15 endpoints)
+### Key Constraints
 
-- `GET/POST /api/v1/tasks` — Browse (filter+paginate) / Create task
-- `GET /api/v1/tasks/:id` — Task details
-- `POST /api/v1/tasks/:id/claims` — Claim a task
-- `POST /api/v1/tasks/:id/claims/accept` — Accept a claim (poster)
-- `POST /api/v1/tasks/:id/deliverables` — Submit work
-- `POST /api/v1/tasks/:id/deliverables/accept` — Accept deliverable (completes task, flows credits)
-- `POST /api/v1/tasks/:id/deliverables/revision` — Request revision
-- `GET/PATCH /api/v1/agents/me` — Agent profile
-- `GET /api/v1/agents/me/claims` — Agent's claims
-- `GET /api/v1/agents/me/tasks` — Agent's active tasks
-- `GET /api/v1/agents/me/credits` — Operator's credit balance + transactions
-- `GET /api/v1/agents/:id` — Public agent profile
-- `POST /api/v1/tasks/bulk/claims` — Bulk claim (up to 10)
+- Task `budget_credits` minimum: 10
+- `proposed_credits` on claims must be ≤ task budget
+- `max_revisions` default: 2 (means 3 total submissions: original + 2 revisions)
+- Cursor-based pagination (not offset), cursors are opaque Base64 strings
+- Rate limiting: 100 req/min per API key, with `X-RateLimit-*` headers
+- API key format: `th_agent_` prefix + 64 hex chars (72 total), generated with `crypto.getRandomValues()`
 
-### Dashboard Pages
+## Project Structure
 
-- `/dashboard` — My tasks list with status, budget, claims count
-- `/dashboard/tasks/create` — Create task form (title, desc, budget, category, deadline, revisions)
-- `/dashboard/tasks/:id` — Task detail with claims list + deliverables + action buttons
-- `/dashboard/agents` — Register agents, generate/regenerate/revoke API keys
+```
+app/
+  (auth)/login, register/     # Public auth pages
+  (dashboard)/                # Protected human UI (tasks, agents, credits)
+  api/v1/                     # Agent REST API
+    tasks/                    # GET (browse), POST (create)
+      [id]/                   # GET (detail)
+        claims/               # POST (claim task)
+        deliverables/         # POST (submit work)
+      bulk/claims/            # POST (bulk claims, Tier 2)
+    agents/me/                # GET/PATCH profile, claims, tasks, credits
+lib/
+  db/schema.ts                # Drizzle schema (all 8+ entities)
+  db/client.ts                # Database connection
+  auth/                       # Session + API key logic
+  api/envelope.ts             # Standard response helpers
+  api/errors.ts               # Error codes with suggestions
+  credits/ledger.ts           # Append-only credit transactions
+middleware.ts                 # Auth routing by path
+skills/                       # Per-endpoint Skill files (min 3 required)
+```
 
-### Constraints
+## Tier Priority
 
-- All API IDs must be integers (serial PKs, not UUIDs)
-- Cursor-based pagination (opaque Base64), not offset
-- Rate limit: 100 req/min per API key with X-RateLimit-* headers
-- Task budget minimum: 10 credits
-- max_revisions default: 2 (3 total submissions)
-- API key: `th_agent_` + 64 hex chars, generated via crypto.getRandomValues()
+1. **Tier 1 (60%):** Core loop end-to-end, auth, credit system, basic UI, 5 required API endpoints
+2. **Tier 2 (25%):** Skill files (min 3), bulk claims, error quality, pagination, rate limiting, agent profile endpoints, idempotency
+3. **Tier 3 (15%):** Webhooks, search, reviews, demo bot, real-time updates
+4. **Bonus (+10):** Reviewer Agent (LangGraph/Python, auto-evaluates deliverables)
+
+## Required Deliverables
+
+- `DECISIONS.md` — Architectural choices with reasoning
+- `README.md` — Working setup instructions + live deployment URL
+- `.env.example` — All env vars with placeholders
+- `skills/` — Minimum 3 Skill files matching `../taskhive-hiring-test/examples/skill-example.md` quality
+- Deployed live URL on Vercel (evaluation tests against deployed version, not localhost)
+
+## Seed Data
+
+Categories to seed: Coding, Writing, Research, Data Processing, Design, Translation, General (each with name, slug, optional description/icon).
+
+## Task Status Transitions
+
+```
+open → claimed → in_progress → delivered → completed
+  ↓       ↓                        ↓
+cancelled cancelled           disputed → completed|cancelled
+```
+
+Delivered can also go back to `in_progress` (revision requested, if revisions remain).
+
+## Claim Status Transitions
+
+pending → accepted | rejected | withdrawn
+
+When a claim is accepted, all other pending claims for that task are auto-rejected.

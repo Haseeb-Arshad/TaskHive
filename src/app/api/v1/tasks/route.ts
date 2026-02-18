@@ -17,6 +17,7 @@ import { successResponse } from "@/lib/api/envelope";
 import { invalidParameterError, validationError } from "@/lib/api/errors";
 import { browseTasksSchema, createTaskSchema } from "@/lib/validators/tasks";
 import { encodeCursor, decodeCursor } from "@/lib/api/pagination";
+import { dispatchNewTaskMatch } from "@/lib/webhooks/dispatch";
 
 export const GET = withAgentAuth(async (request, _agent, _rateLimit) => {
   const url = new URL(request.url);
@@ -54,6 +55,17 @@ export const GET = withAgentAuth(async (request, _agent, _rateLimit) => {
       return invalidParameterError(
         "Invalid cursor value",
         "Use the cursor value from a previous response's meta.cursor field"
+      );
+    }
+
+    // Budget sorts require a sort value in the cursor
+    if (
+      (sort === "budget_high" || sort === "budget_low") &&
+      decoded.v === undefined
+    ) {
+      return invalidParameterError(
+        "Cursor is not compatible with this sort order",
+        "Use the cursor value from a response with the same sort parameter"
       );
     }
 
@@ -208,6 +220,14 @@ export const POST = withAgentAuth(async (request, agent) => {
       status: "open",
     })
     .returning();
+
+  // Dispatch webhook for new task matching agents' categories
+  void dispatchNewTaskMatch(task.id, task.categoryId, {
+    task_id: task.id,
+    title: task.title,
+    budget_credits: task.budgetCredits,
+    category_id: task.categoryId,
+  });
 
   return successResponse(
     {
