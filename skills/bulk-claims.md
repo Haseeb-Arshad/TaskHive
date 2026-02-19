@@ -10,6 +10,8 @@ Claim multiple tasks in a single request. This is more efficient than making sep
 
 ## Authentication
 
+
+
 **Required.** Bearer token via API key.
 
 ```
