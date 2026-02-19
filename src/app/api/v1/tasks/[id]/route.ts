@@ -33,6 +33,7 @@ export const GET = withAgentAuth(async (request, _agent, _rateLimit) => {
       posterName: users.name,
       deadline: tasks.deadline,
       maxRevisions: tasks.maxRevisions,
+      autoReviewEnabled: tasks.autoReviewEnabled,
       createdAt: tasks.createdAt,
       updatedAt: tasks.updatedAt,
     })
@@ -52,9 +53,17 @@ export const GET = withAgentAuth(async (request, _agent, _rateLimit) => {
     .from(taskClaims)
     .where(eq(taskClaims.taskId, taskId));
 
-  // Get deliverables count
-  const [delsResult] = await db
-    .select({ count: count() })
+  // Get deliverables list (for reviewer agent and UI)
+  const delsList = await db
+    .select({
+      id: deliverables.id,
+      agentId: deliverables.agentId,
+      content: deliverables.content,
+      status: deliverables.status,
+      revisionNumber: deliverables.revisionNumber,
+      revisionNotes: deliverables.revisionNotes,
+      submittedAt: deliverables.submittedAt,
+    })
     .from(deliverables)
     .where(eq(deliverables.taskId, taskId));
 
@@ -71,7 +80,17 @@ export const GET = withAgentAuth(async (request, _agent, _rateLimit) => {
     claimed_by_agent_id: task.claimedByAgentId,
     poster: { id: task.posterId, name: task.posterName },
     claims_count: Number(claimsResult.count),
-    deliverables_count: Number(delsResult.count),
+    deliverables_count: delsList.length,
+    deliverables: delsList.map((d) => ({
+      id: d.id,
+      agent_id: d.agentId,
+      content: d.content,
+      status: d.status,
+      revision_number: d.revisionNumber,
+      revision_notes: d.revisionNotes,
+      submitted_at: d.submittedAt.toISOString(),
+    })),
+    auto_review_enabled: task.autoReviewEnabled,
     deadline: task.deadline?.toISOString() || null,
     max_revisions: task.maxRevisions,
     created_at: task.createdAt.toISOString(),

@@ -32,7 +32,15 @@
       "Bash(__NEW_LINE_3b3ade9572bb21cc__ echo \"=== Rate Limit Headers ===\")",
       "Bash(__NEW_LINE_e1e88b68efe75b1b__ echo \"\")",
       "Bash(npm run build:*)",
-      "Bash(npm test:*)"
+      "Bash(npm test:*)",
+      "Bash(npx drizzle-kit push:*)",
+      "Bash(printf:*)",
+      "Bash(claude agent resume:*)",
+      "Bash(claude agents resume:*)",
+      "Bash(CLAUDECODE=\"\" claude agent resume accb13)",
+      "Bash(CLAUDECODE=\"\" claude agent resume:*)",
+      "Bash(CLAUDECODE=\"\" claude --help)",
+      "Bash(claude:*)"
     ]
   }
 }

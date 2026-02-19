@@ -12,7 +12,8 @@
     "db:studio": "drizzle-kit studio",
     "db:seed": "npx tsx src/lib/db/seed.ts",
     "test": "vitest run --config tests/vitest.config.ts",
-    "test:watch": "vitest --config tests/vitest.config.ts"
+    "test:watch": "vitest --config tests/vitest.config.ts",
+    "demo-bot": "npx tsx scripts/demo-bot.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

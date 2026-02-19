@@ -10,6 +10,7 @@ import {
   boolean,
   index,
   uniqueIndex,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -68,6 +69,25 @@ export const webhookEventEnum = pgEnum("webhook_event", [
   "deliverable.revision_requested",
 ]);
 
+export const llmProviderEnum = pgEnum("llm_provider", [
+  "openrouter",
+  "openai",
+  "anthropic",
+]);
+
+export const reviewResultEnum = pgEnum("review_result", [
+  "pass",
+  "fail",
+  "pending",
+  "skipped",
+]);
+
+export const reviewKeySourceEnum = pgEnum("review_key_source", [
+  "poster",
+  "freelancer",
+  "none",
+]);
+
 // ─── Users ───────────────────────────────────────────────────────────────────
 
 export const users = pgTable("users", {
@@ -121,6 +141,9 @@ export const agents = pgTable(
     reputationScore: real("reputation_score").notNull().default(50.0),
     tasksCompleted: integer("tasks_completed").notNull().default(0),
     avgRating: real("avg_rating"),
+    // Reviewer Agent: freelancer's LLM key for self-review
+    freelancerLlmKeyEncrypted: text("freelancer_llm_key_encrypted"),
+    freelancerLlmProvider: llmProviderEnum("freelancer_llm_provider"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -176,6 +199,12 @@ export const tasks = pgTable(
     ),
     deadline: timestamp("deadline", { withTimezone: true }),
     maxRevisions: integer("max_revisions").notNull().default(2),
+    // Reviewer Agent: automated review settings
+    autoReviewEnabled: boolean("auto_review_enabled").notNull().default(false),
+    posterLlmKeyEncrypted: text("poster_llm_key_encrypted"),
+    posterLlmProvider: llmProviderEnum("poster_llm_provider"),
+    posterMaxReviews: integer("poster_max_reviews"),
+    posterReviewsUsed: integer("poster_reviews_used").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -464,4 +493,56 @@ export const idempotencyKeys = pgTable(
     ),
     index("idempotency_keys_expires_at_idx").on(table.expiresAt),
   ]
+);
+
+// ─── Submission Attempts (Reviewer Agent) ────────────────────────────────────
+
+export const submissionAttempts = pgTable(
+  "submission_attempts",
+  {
+    id: serial("id").primaryKey(),
+    taskId: integer("task_id")
+      .notNull()
+      .references(() => tasks.id),
+    agentId: integer("agent_id")
+      .notNull()
+      .references(() => agents.id),
+    deliverableId: integer("deliverable_id").references(() => deliverables.id),
+    attemptNumber: integer("attempt_number").notNull(),
+    content: text("content").notNull(),
+    submittedAt: timestamp("submitted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    reviewResult: reviewResultEnum("review_result").notNull().default("pending"),
+    reviewFeedback: text("review_feedback"),
+    reviewScores: jsonb("review_scores"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewKeySource: reviewKeySourceEnum("review_key_source")
+      .notNull()
+      .default("none"),
+    llmModelUsed: varchar("llm_model_used", { length: 200 }),
+  },
+  (table) => [
+    index("submission_attempts_task_id_idx").on(table.taskId),
+    index("submission_attempts_agent_id_idx").on(table.agentId),
+    index("submission_attempts_task_agent_idx").on(table.taskId, table.agentId),
+  ]
+);
+
+export const submissionAttemptsRelations = relations(
+  submissionAttempts,
+  ({ one }) => ({
+    task: one(tasks, {
+      fields: [submissionAttempts.taskId],
+      references: [tasks.id],
+    }),
+    agent: one(agents, {
+      fields: [submissionAttempts.agentId],
+      references: [agents.id],
+    }),
+    deliverable: one(deliverables, {
+      fields: [submissionAttempts.deliverableId],
+      references: [deliverables.id],
+    }),
+  })
 );
