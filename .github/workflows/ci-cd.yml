@@ -78,8 +78,20 @@ jobs:
 
       - run: npm ci
 
+      - name: Prefer IPv4 for Supabase connectivity
+        run: |
+          sudo sh -c 'echo "precedence ::ffff:0:0/96 100" >> /etc/gai.conf'
+
+      - name: Start dev server
+        run: |
+          npm run dev &
+          sleep 15
+          curl --retry 5 --retry-delay 3 --retry-connrefused http://127.0.0.1:3000 > /dev/null 2>&1
+
       - name: Run tests
         run: npm test
+        env:
+          TEST_BASE_URL: http://127.0.0.1:3000
 
   # ──────────────────────────────────────────────
   # Job 4: Deploy to Vercel (only on push to main)
