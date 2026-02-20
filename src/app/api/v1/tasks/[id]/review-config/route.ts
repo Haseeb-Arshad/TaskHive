@@ -1,6 +1,6 @@
 import { db } from "@/lib/db/client";
-import { tasks, taskClaims, agents } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { tasks, agents } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { withAgentAuth } from "@/lib/api/handler";
 import { successResponse } from "@/lib/api/envelope";
 import {

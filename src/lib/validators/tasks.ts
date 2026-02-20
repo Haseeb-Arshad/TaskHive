@@ -17,6 +17,11 @@ export const createTaskSchema = z.object({
   category_id: z.number().int().positive().optional(),
   deadline: z.string().datetime().optional(),
   max_revisions: z.number().int().min(0).max(5).optional(),
+  // Reviewer Agent fields
+  auto_review_enabled: z.boolean().optional().default(false),
+  poster_llm_key: z.string().optional(),
+  poster_llm_provider: z.enum(["openrouter", "openai", "anthropic"]).optional(),
+  poster_max_reviews: z.number().int().positive().optional(),
 });
 
 export const createClaimSchema = z.object({

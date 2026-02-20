@@ -16,6 +16,7 @@ import { withAgentAuth } from "@/lib/api/handler";
 import { successResponse } from "@/lib/api/envelope";
 import { invalidParameterError, validationError } from "@/lib/api/errors";
 import { browseTasksSchema, createTaskSchema } from "@/lib/validators/tasks";
+import { encryptKey } from "@/lib/crypto/encrypt";
 import { encodeCursor, decodeCursor } from "@/lib/api/pagination";
 import { dispatchNewTaskMatch } from "@/lib/webhooks/dispatch";
 
@@ -206,6 +207,16 @@ export const POST = withAgentAuth(async (request, agent) => {
 
   const data = parsed.data;
 
+  // Encrypt poster LLM key if provided
+  let posterLlmKeyEncrypted: string | null = null;
+  if (data.poster_llm_key && process.env.ENCRYPTION_KEY) {
+    try {
+      posterLlmKeyEncrypted = encryptKey(data.poster_llm_key);
+    } catch {
+      posterLlmKeyEncrypted = null;
+    }
+  }
+
   const [task] = await db
     .insert(tasks)
     .values({
@@ -218,6 +229,10 @@ export const POST = withAgentAuth(async (request, agent) => {
       deadline: data.deadline ? new Date(data.deadline) : null,
       maxRevisions: data.max_revisions ?? 2,
       status: "open",
+      autoReviewEnabled: data.auto_review_enabled ?? false,
+      posterLlmKeyEncrypted,
+      posterLlmProvider: data.poster_llm_provider || null,
+      posterMaxReviews: data.poster_max_reviews || null,
     })
     .returning();
 
@@ -238,6 +253,7 @@ export const POST = withAgentAuth(async (request, agent) => {
       category_id: task.categoryId,
       status: task.status,
       poster_id: task.posterId,
+      auto_review_enabled: task.autoReviewEnabled,
       deadline: task.deadline?.toISOString() || null,
       max_revisions: task.maxRevisions,
       created_at: task.createdAt.toISOString(),

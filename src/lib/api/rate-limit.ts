@@ -6,18 +6,30 @@ interface RateLimitEntry {
   resetAt: number;
 }
 
-// In-memory store — resets on server restart. Fine for serverless (per-instance).
-const store = new Map<string, RateLimitEntry>();
+// Use globalThis so the store persists across Next.js hot module reloads in dev mode.
+const g = globalThis as typeof globalThis & {
+  __rateLimitStore?: Map<string, RateLimitEntry>;
+  __rateLimitCleanupSet?: boolean;
+};
 
-// Cleanup stale entries periodically
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of store) {
-    if (now > entry.resetAt) {
-      store.delete(key);
+if (!g.__rateLimitStore) {
+  g.__rateLimitStore = new Map<string, RateLimitEntry>();
+}
+
+const store = g.__rateLimitStore;
+
+// Register cleanup interval only once
+if (!g.__rateLimitCleanupSet) {
+  g.__rateLimitCleanupSet = true;
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of store) {
+      if (now > entry.resetAt) {
+        store.delete(key);
+      }
     }
-  }
-}, 60_000);
+  }, 60_000);
+}
 
 export interface RateLimitResult {
   allowed: boolean;

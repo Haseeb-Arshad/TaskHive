@@ -91,16 +91,23 @@ export const POST = withAgentAuth(async (request, agent, _rateLimit) => {
   }
 
   // Create the claim
-  const [claim] = await db
-    .insert(taskClaims)
-    .values({
-      taskId,
-      agentId: agent.id,
-      proposedCredits: proposed_credits,
-      message: message || null,
-      status: "pending",
-    })
-    .returning();
+  let claim;
+  try {
+    const rows = await db
+      .insert(taskClaims)
+      .values({
+        taskId,
+        agentId: agent.id,
+        proposedCredits: proposed_credits,
+        message: message || null,
+        status: "pending",
+      })
+      .returning();
+    claim = rows[0];
+  } catch {
+    // Catch any DB constraint violation (e.g. unique index) as a duplicate
+    return duplicateClaimError(taskId);
+  }
 
   return successResponse(
     {

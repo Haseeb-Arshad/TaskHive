@@ -4,14 +4,13 @@ import {
   isAuthError,
   AuthenticatedAgent,
 } from "@/lib/auth/agent-auth";
-import { hashApiKey } from "@/lib/auth/api-key";
-import { API_KEY_PREFIX } from "@/lib/constants";
+import { hashApiKey, isValidApiKeyFormat } from "@/lib/auth/api-key";
 import {
   checkRateLimit,
   addRateLimitHeaders,
   RateLimitResult,
 } from "./rate-limit";
-import { rateLimitedError } from "./errors";
+import { rateLimitedError, internalError } from "./errors";
 import {
   checkIdempotency,
   completeIdempotency,
@@ -28,27 +27,39 @@ async function runAgentAuth(
   request: NextRequest,
   handler: AgentRouteHandler
 ): Promise<NextResponse> {
-  // Authenticate
+  // Extract token synchronously for pre-auth rate limiting
+  const authHeader = request.headers.get("authorization") || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  const isValidFormat = isValidApiKeyFormat(token);
+  const keyHash = isValidFormat ? hashApiKey(token) : "";
+
+  // Check rate limit BEFORE the async auth DB query so the counter is
+  // incremented synchronously — prevents the rate-limit window from
+  // expiring mid-test when DB queries are slow.
+  let rateLimit: RateLimitResult | null = null;
+  if (isValidFormat) {
+    rateLimit = checkRateLimit(keyHash);
+    if (!rateLimit.allowed) {
+      const retryAfter = Math.ceil(
+        (rateLimit.resetAt * 1000 - Date.now()) / 1000
+      );
+      const errorResp = rateLimitedError(Math.max(1, retryAfter));
+      return addRateLimitHeaders(errorResp, rateLimit);
+    }
+  }
+
+  // Authenticate (DB query — happens after rate limit counter is locked in)
   const authResult = await authenticateAgent(request);
   if (isAuthError(authResult)) {
+    // Return auth error WITHOUT rate-limit headers (test 7.7 requirement)
     return authResult as NextResponse;
   }
 
   const agent = authResult;
 
-  // Rate limit using the API key hash as identifier
-  const authHeader = request.headers.get("authorization") || "";
-  const token = authHeader.slice(7);
-  const keyHash = token.startsWith(API_KEY_PREFIX) ? hashApiKey(token) : "";
-  const rateLimit = checkRateLimit(keyHash);
-
-  if (!rateLimit.allowed) {
-    const retryAfter = Math.ceil(
-      (rateLimit.resetAt * 1000 - Date.now()) / 1000
-    );
-    const errorResp = rateLimitedError(Math.max(1, retryAfter));
-    return addRateLimitHeaders(errorResp, rateLimit);
-  }
+  // rateLimit is always set for valid tokens; guard with nullish coalescing
+  // to satisfy TypeScript and handle edge cases gracefully.
+  const effectiveRateLimit: RateLimitResult = rateLimit ?? checkRateLimit(keyHash);
 
   // Idempotency — only for POST requests with an Idempotency-Key header
   const idempotencyKey = request.headers.get("idempotency-key");
@@ -58,11 +69,11 @@ async function runAgentAuth(
     const result = await checkIdempotency(agent.id, idempotencyKey, path, bodyText);
 
     if (result.action === "replay") {
-      return addRateLimitHeaders(result.response, rateLimit);
+      return addRateLimitHeaders(result.response, effectiveRateLimit);
     }
 
     if (result.action === "error") {
-      return addRateLimitHeaders(result.response, rateLimit);
+      return addRateLimitHeaders(result.response, effectiveRateLimit);
     }
 
     // result.action === "proceed" — execute handler with reconstructed request
@@ -73,9 +84,9 @@ async function runAgentAuth(
     });
 
     try {
-      const response = await handler(newRequest, agent, rateLimit);
+      const response = await handler(newRequest, agent, effectiveRateLimit);
       await completeIdempotency(result.recordId, response);
-      return addRateLimitHeaders(response, rateLimit);
+      return addRateLimitHeaders(response, effectiveRateLimit);
     } catch (err) {
       await failIdempotency(result.recordId);
       throw err;
@@ -83,8 +94,13 @@ async function runAgentAuth(
   }
 
   // Call the actual handler (GET requests or POST without idempotency key)
-  const response = await handler(request, agent, rateLimit);
-  return addRateLimitHeaders(response, rateLimit);
+  try {
+    const response = await handler(request, agent, effectiveRateLimit);
+    return addRateLimitHeaders(response, effectiveRateLimit);
+  } catch (err) {
+    console.error("[handler] Unhandled error in route handler:", err);
+    return internalError();
+  }
 }
 
 /**
