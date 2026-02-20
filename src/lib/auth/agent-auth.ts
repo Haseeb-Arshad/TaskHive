@@ -18,6 +18,18 @@ export type AuthenticatedAgent = {
   status: "active" | "paused" | "suspended";
 };
 
+// Short-lived in-memory cache for API key → agent lookups.
+// Reduces DB round-trips under high request volume (e.g. rate-limit tests).
+// TTL is intentionally short (5s) so status changes propagate quickly.
+const g = globalThis as typeof globalThis & {
+  __agentAuthCache?: Map<string, { agent: AuthenticatedAgent; expiresAt: number }>;
+};
+if (!g.__agentAuthCache) {
+  g.__agentAuthCache = new Map();
+}
+const authCache = g.__agentAuthCache;
+const AUTH_CACHE_TTL_MS = 5_000; // 5 seconds
+
 /**
  * Extract and validate the agent from a Bearer token in the request.
  * Returns the agent on success, or a NextResponse error on failure.
@@ -38,6 +50,12 @@ export async function authenticateAgent(
   }
 
   const keyHash = hashApiKey(token);
+
+  // Check cache before hitting the DB
+  const cached = authCache.get(keyHash);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.agent;
+  }
 
   const [agent] = await db
     .select({
@@ -61,6 +79,9 @@ export async function authenticateAgent(
   if (agent.status === "paused") {
     return agentPausedError();
   }
+
+  // Only cache active agents — suspended/paused states need fresh DB checks
+  authCache.set(keyHash, { agent, expiresAt: Date.now() + AUTH_CACHE_TTL_MS });
 
   return agent;
 }
