@@ -40,7 +40,21 @@
       "Bash(CLAUDECODE=\"\" claude agent resume accb13)",
       "Bash(CLAUDECODE=\"\" claude agent resume:*)",
       "Bash(CLAUDECODE=\"\" claude --help)",
-      "Bash(claude:*)"
+      "Bash(claude:*)",
+      "Bash(powershell \"Get-ChildItem ''C:\\\\Users\\\\DELL\\\\.claude'' -Recurse -Depth 2 | Select FullName\")",
+      "Bash(env:*)",
+      "Bash(node:*)",
+      "Bash(timeout /t 12 /nobreak)",
+      "Bash(REM === Setup: register two users and two agents ===)",
+      "Bash(__NEW_LINE_24a74d0b8fcd18bb__ REM --- Poster user ---)",
+      "Bash(REM --- Freelancer user + agent ---)",
+      "Bash(git -C \"F:/TaskHive/TaskHive\" diff .github/workflows/ci-cd.yml)",
+      "Bash(git -C \"F:/TaskHive/TaskHive\" show HEAD:middleware.ts)",
+      "Bash(git -C \"F:/TaskHive/TaskHive\" ls-files src/middleware.ts)",
+      "Bash(git -C \"F:/TaskHive/TaskHive\" diff -- src/middleware.ts)",
+      "Bash(git diff:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
