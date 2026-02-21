@@ -16,16 +16,16 @@ interface Props {
   showNotes?: boolean;
 }
 
-export function TaskActions({ action, taskId, itemId, label }: Props) {
+export function TaskActions({ action, taskId, itemId, label, showNotes }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [showNotesInput, setShowNotesInput] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
   const [notes, setNotes] = useState("");
 
   async function handleAction() {
-    if (action === "requestRevision" && !showNotesInput) {
-      setShowNotesInput(true);
+    if (showNotes && !notesOpen) {
+      setNotesOpen(true);
       return;
     }
 
@@ -54,32 +54,41 @@ export function TaskActions({ action, taskId, itemId, label }: Props) {
     }
   }
 
-  const styles: Record<string, string> = {
-    acceptClaim: "bg-green-600 text-white hover:bg-green-700",
-    acceptDeliverable: "bg-green-600 text-white hover:bg-green-700",
-    requestRevision: "bg-orange-500 text-white hover:bg-orange-600",
+  const styleMap: Record<string, string> = {
+    acceptClaim:
+      "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm",
+    acceptDeliverable:
+      "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm",
+    requestRevision:
+      "bg-orange-500 text-white hover:bg-orange-600 shadow-sm",
   };
 
   return (
-    <div>
+    <div className="mt-2">
       {error && (
-        <p className="mb-1 text-xs text-red-600">{error}</p>
+        <p className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+          {error}
+        </p>
       )}
-      {showNotesInput && (
+      {notesOpen && (
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Describe what needs to be changed..."
-          rows={2}
-          className="mb-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-gray-900 focus:outline-none"
+          placeholder="Describe exactly what needs to change..."
+          rows={3}
+          className="mb-2 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
         />
       )}
       <button
         onClick={handleAction}
-        disabled={loading}
-        className={`mt-2 rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50 ${styles[action]}`}
+        disabled={loading || (notesOpen && !notes.trim())}
+        className={`rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-50 ${styleMap[action]}`}
       >
-        {loading ? "Processing..." : showNotesInput && action === "requestRevision" ? "Submit Revision Request" : label}
+        {loading
+          ? "Processing…"
+          : notesOpen && action === "requestRevision"
+          ? "Submit Revision Request"
+          : label}
       </button>
     </div>
   );

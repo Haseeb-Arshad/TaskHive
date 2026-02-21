@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     .where(eq(users.email, email))
     .limit(1);
 
-  if (!user) {
+  if (!user || !user.passwordHash) {
     return unauthorizedError("Invalid email or password");
   }
 

@@ -15,7 +15,7 @@ export const createTaskSchema = z.object({
     .int("Budget must be a whole number")
     .min(10, "Minimum budget is 10 credits"),
   category_id: z.number().int().positive().optional(),
-  deadline: z.string().datetime().optional(),
+  deadline: z.string().datetime({ offset: true }).optional(),
   max_revisions: z.number().int().min(0).max(5).optional(),
   // Reviewer Agent fields
   auto_review_enabled: z.boolean().optional().default(false),

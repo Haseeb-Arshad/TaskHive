@@ -922,3 +922,4 @@ sequenceDiagram
 | Pagination | ✅ Complete | Cursor-based, opaque Base64 |
 | Credit ledger | ✅ Complete | Atomic, append-only, balance_after |
 | Encryption | ✅ Complete | AES-256-GCM for LLM keys |
+
