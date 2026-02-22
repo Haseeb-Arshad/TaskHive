@@ -1,6 +1,3 @@
-import { db } from "@/lib/db/client";
-import { agents, users } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
 import { getSession } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
 import { RegisterAgentForm } from "./register-form";
@@ -10,24 +7,22 @@ export default async function AgentsPage() {
   const session = await getSession();
   if (!session?.user?.id) redirect("/login");
 
-  // Fetch agents with operator name
-  const myAgents = await db
-    .select({
-      id: agents.id,
-      name: agents.name,
-      description: agents.description,
-      capabilities: agents.capabilities,
-      status: agents.status,
-      apiKeyPrefix: agents.apiKeyPrefix,
-      reputationScore: agents.reputationScore,
-      tasksCompleted: agents.tasksCompleted,
-      createdAt: agents.createdAt,
-      operatorName: users.name,
-      operatorEmail: users.email,
-    })
-    .from(agents)
-    .innerJoin(users, eq(agents.operatorId, users.id))
-    .where(eq(agents.operatorId, session.user.id));
+  // Fetch agents from Python backend
+  const res = await fetch("http://localhost:8000/api/v1/user/agents", {
+    headers: {
+      "X-User-ID": String(session.user.id),
+    },
+  });
+
+  if (!res.ok) {
+    return (
+      <div className="rounded-lg bg-red-50 p-4 text-red-700">
+        Failed to load agents from backend.
+      </div>
+    );
+  }
+
+  const myAgents = await res.json();
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -92,7 +87,7 @@ export default async function AgentsPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {myAgents.map((agent) => (
+            {myAgents.map((agent: any) => (
               <div
                 key={agent.id}
                 className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
@@ -109,13 +104,12 @@ export default async function AgentsPage() {
                           {agent.name}
                         </h3>
                         <span
-                          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                            agent.status === "active"
-                              ? "bg-emerald-100 text-emerald-700"
-                              : agent.status === "paused"
+                          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${agent.status === "active"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : agent.status === "paused"
                               ? "bg-amber-100 text-amber-700"
                               : "bg-red-100 text-red-700"
-                          }`}
+                            }`}
                         >
                           {agent.status}
                         </span>
@@ -127,19 +121,19 @@ export default async function AgentsPage() {
                       <p className="mt-1 text-xs text-gray-400">
                         Operated by{" "}
                         <span className="font-medium text-gray-600">
-                          {agent.operatorName}
+                          {agent.operator_name}
                         </span>{" "}
-                        ({agent.operatorEmail})
+                        ({agent.operator_email})
                       </p>
                     </div>
                   </div>
-                  <AgentKeyActions agentId={agent.id} hasKey={!!agent.apiKeyPrefix} />
+                  <AgentKeyActions agentId={agent.id} hasKey={!!agent.api_key_prefix} />
                 </div>
 
                 {/* Capabilities */}
-                {agent.capabilities.length > 0 && (
+                {agent.capabilities && agent.capabilities.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 border-t border-gray-100 px-5 py-3">
-                    {agent.capabilities.map((cap) => (
+                    {agent.capabilities.map((cap: string) => (
                       <span
                         key={cap}
                         className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600"
@@ -154,29 +148,29 @@ export default async function AgentsPage() {
                 <div className="grid grid-cols-4 divide-x divide-gray-100 border-t border-gray-100 bg-gray-50">
                   <StatCell
                     label="Reputation"
-                    value={`${agent.reputationScore?.toFixed(0) ?? 50}/100`}
+                    value={`${agent.reputation_score?.toFixed(0) ?? 50}/100`}
                   />
                   <StatCell
                     label="Tasks Done"
-                    value={String(agent.tasksCompleted)}
+                    value={String(agent.tasks_completed)}
                   />
                   <StatCell
                     label="API Key"
                     value={
-                      agent.apiKeyPrefix
-                        ? `${agent.apiKeyPrefix}…`
+                      agent.api_key_prefix
+                        ? `${agent.api_key_prefix}…`
                         : "No key"
                     }
                     mono
                   />
                   <StatCell
                     label="Registered"
-                    value={new Date(agent.createdAt).toLocaleDateString()}
+                    value={new Date(agent.created_at).toLocaleDateString()}
                   />
                 </div>
 
                 {/* No key warning */}
-                {!agent.apiKeyPrefix && (
+                {!agent.api_key_prefix && (
                   <div className="border-t border-amber-200 bg-amber-50 px-5 py-2.5 text-xs text-amber-700">
                     ⚠️ No API key — this agent cannot authenticate. Generate one
                     using the button above.

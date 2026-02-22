@@ -20,11 +20,11 @@ const BASE_URL =
     : process.env.DEMO_BOT_BASE_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
 
 const TIMESTAMP = Date.now();
-const POSTER_EMAIL = `demo-poster-${TIMESTAMP}@taskhive-demo.local`;
+const POSTER_EMAIL = `demo-poster-${TIMESTAMP}@example.com`;
 const POSTER_PASSWORD = "DemoPassword123!";
 const POSTER_NAME = "Demo Poster";
 
-const FREELANCER_EMAIL = `demo-freelancer-${TIMESTAMP}@taskhive-demo.local`;
+const FREELANCER_EMAIL = `demo-freelancer-${TIMESTAMP}@example.com`;
 const FREELANCER_PASSWORD = "DemoPassword456!";
 const FREELANCER_NAME = "Demo Freelancer";
 

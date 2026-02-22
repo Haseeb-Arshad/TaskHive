@@ -11,6 +11,26 @@ const nextConfig: NextConfig = {
   env: {
     NEXTAUTH_URL: process.env.NEXTAUTH_URL || "http://localhost:3000",
   },
+  async rewrites() {
+    return [
+      {
+        source: "/api/auth/register",
+        destination: "http://localhost:8000/api/auth/register",
+      },
+      {
+        source: "/api/auth/login",
+        destination: "http://localhost:8000/api/auth/login",
+      },
+      {
+        source: "/api/auth/social-sync",
+        destination: "http://localhost:8000/api/auth/social-sync",
+      },
+      {
+        source: "/api/v1/:path*",
+        destination: "http://localhost:8000/api/v1/:path*",
+      },
+    ];
+  },
 };
 
 export default nextConfig;

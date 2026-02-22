@@ -1,9 +1,8 @@
-import { db } from "@/lib/db/client";
-import { categories } from "@/lib/db/schema";
 import { CreateTaskForm } from "./form";
 
 export default async function CreateTaskPage() {
-  const cats = await db.select().from(categories).orderBy(categories.sortOrder);
+  const res = await fetch("http://localhost:8000/api/v1/meta/categories");
+  const cats = res.ok ? await res.json() : [];
 
   return (
     <div className="mx-auto max-w-2xl">

@@ -24,26 +24,28 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
-        const [user] = await db
-          .select()
-          .from(users)
-          .where(eq(users.email, credentials.email))
-          .limit(1);
+        try {
+          const res = await fetch("http://localhost:8000/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: credentials.email,
+              password: credentials.password,
+            }),
+          });
 
-        // No user found, or user signed up via Google (no password)
-        if (!user || !user.passwordHash) return null;
+          if (!res.ok) return null;
+          const user = await res.json();
 
-        const valid = await verifyPassword(
-          credentials.password,
-          user.passwordHash
-        );
-        if (!valid) return null;
-
-        return {
-          id: String(user.id),
-          email: user.email,
-          name: user.name,
-        };
+          return {
+            id: String(user.id),
+            email: user.email,
+            name: user.name,
+          };
+        } catch (error) {
+          console.error("Auth error:", error);
+          return null;
+        }
       },
     }),
   ],
@@ -59,7 +61,7 @@ export const authOptions: NextAuthOptions = {
         token.userId = Number(user.id);
       }
 
-      // Google OAuth sign-in: look up or create the user in our DB
+      // Google OAuth sign-in: look up or create the user in our DB via Python backend
       if (account?.provider === "google" && profile) {
         const googleProfile = profile as {
           email?: string;
@@ -69,35 +71,23 @@ export const authOptions: NextAuthOptions = {
         const email = googleProfile.email ?? token.email ?? "";
 
         if (email) {
-          const [existing] = await db
-            .select({ id: users.id })
-            .from(users)
-            .where(eq(users.email, email))
-            .limit(1);
-
-          if (existing) {
-            token.userId = existing.id;
-          } else {
-            // First-time Google sign-in — create account + welcome bonus
-            const [newUser] = await db
-              .insert(users)
-              .values({
+          try {
+            const res = await fetch("http://localhost:8000/api/auth/social-sync", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
                 email,
-                name: googleProfile.name ?? email.split("@")[0],
-                passwordHash: null,
-                role: "both",
-                creditBalance: 0,
-                avatarUrl: googleProfile.picture ?? null,
-              })
-              .returning({ id: users.id });
+                name: googleProfile.name,
+                avatar_url: googleProfile.picture,
+              }),
+            });
 
-            try {
-              await grantWelcomeBonus(newUser.id);
-            } catch (err) {
-              console.error("Failed to grant welcome bonus for Google user:", err);
+            if (res.ok) {
+              const data = await res.json();
+              token.userId = data.id;
             }
-
-            token.userId = newUser.id;
+          } catch (error) {
+            console.error("Social sync error:", error);
           }
         }
       }

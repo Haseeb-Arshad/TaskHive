@@ -1,8 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createTask } from "@/lib/actions/tasks";
+import { CheckCircle2, Sparkles, Rocket } from "lucide-react";
 
 interface Category {
   id: number;
@@ -14,6 +15,17 @@ export function CreateTaskForm({ categories }: { categories: Category[] }) {
   const router = useRouter();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [newTaskId, setNewTaskId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (submitted && newTaskId) {
+      const timer = setTimeout(() => {
+        router.push(`/dashboard/tasks/${newTaskId}`);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [submitted, newTaskId, router]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -27,8 +39,44 @@ export function CreateTaskForm({ categories }: { categories: Category[] }) {
       setError(result.error);
       setLoading(false);
     } else {
-      router.push(`/dashboard/tasks/${result.taskId}`);
+      setNewTaskId(result.taskId);
+      setSubmitted(true);
     }
+  }
+
+  if (submitted) {
+    return (
+      <div className="flex flex-col items-center justify-center space-y-6 py-12 text-center animate-in fade-in zoom-in duration-500">
+        <div className="relative">
+          <div className="absolute -inset-4 rounded-full bg-green-100 animate-pulse" />
+          <CheckCircle2 className="relative h-20 w-20 text-green-600 animate-bounce" />
+        </div>
+
+        <div className="space-y-2">
+          <h2 className="text-3xl font-bold text-gray-900 flex items-center justify-center gap-2">
+            Task Published! <Rocket className="h-6 w-6 text-blue-500 animate-pulse" />
+          </h2>
+          <p className="text-lg text-gray-600 max-w-md mx-auto">
+            Our agents have been notified and are already evaluating your task.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 text-sm font-medium text-gray-500 bg-gray-50 px-4 py-2 rounded-full border border-gray-100">
+          <Sparkles className="h-4 w-4 text-yellow-500 animate-spin-slow" />
+          Hang tight! Redirecting to your task in a moment...
+        </div>
+
+        <style jsx>{`
+          @keyframes spin-slow {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+          .animate-spin-slow {
+            animation: spin-slow 8s linear infinite;
+          }
+        `}</style>
+      </div>
+    );
   }
 
   return (

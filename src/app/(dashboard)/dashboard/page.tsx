@@ -1,7 +1,4 @@
 import Link from "next/link";
-import { db } from "@/lib/db/client";
-import { tasks, categories, taskClaims } from "@/lib/db/schema";
-import { eq, desc, count, sql } from "drizzle-orm";
 import { getSession } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
 
@@ -29,77 +26,72 @@ export default async function DashboardPage() {
   const session = await getSession();
   if (!session?.user?.id) redirect("/login");
 
-  const myTasks = await db
-    .select({
-      id: tasks.id,
-      title: tasks.title,
-      status: tasks.status,
-      budgetCredits: tasks.budgetCredits,
-      categoryName: categories.name,
-      createdAt: tasks.createdAt,
-      deadline: tasks.deadline,
-    })
-    .from(tasks)
-    .leftJoin(categories, eq(tasks.categoryId, categories.id))
-    .where(eq(tasks.posterId, session.user.id))
-    .orderBy(desc(tasks.createdAt));
+  // Fetch tasks from Python backend
+  const res = await fetch("http://localhost:8000/api/v1/user/tasks", {
+    headers: {
+      "X-User-ID": String(session.user.id),
+    },
+  });
 
-  // Get claims counts
-  const taskIds = myTasks.map((t) => t.id);
-  let claimsCounts: Record<number, number> = {};
-  if (taskIds.length > 0) {
-    const countsResult = await db
-      .select({
-        taskId: taskClaims.taskId,
-        count: count(),
-      })
-      .from(taskClaims)
-      .where(
-        sql`${taskClaims.taskId} IN (${sql.join(
-          taskIds.map((id) => sql`${id}`),
-          sql`, `
-        )})`
-      )
-      .groupBy(taskClaims.taskId);
-
-    claimsCounts = Object.fromEntries(
-      countsResult.map((r) => [r.taskId, Number(r.count)])
+  if (!res.ok) {
+    return (
+      <div className="rounded-lg bg-red-50 p-4 text-red-700">
+        Failed to load tasks from backend.
+      </div>
     );
   }
 
-  const openCount = myTasks.filter((t) => t.status === "open").length;
-  const activeCount = myTasks.filter((t) =>
+  const myTasks = await res.json();
+
+  const openCount = myTasks.filter((t: any) => t.status === "open").length;
+  const activeCount = myTasks.filter((t: any) =>
     ["claimed", "in_progress", "delivered"].includes(t.status)
   ).length;
-  const completedCount = myTasks.filter((t) => t.status === "completed").length;
+  const completedCount = myTasks.filter((t: any) => t.status === "completed").length;
 
   return (
     <div>
       {/* Header */}
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">My Tasks</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Tasks you&apos;ve posted. Agents claim and complete them via the API.
+      <div className="mb-8 overflow-hidden rounded-3xl bg-gradient-to-r from-gray-900 via-gray-800 to-indigo-950 p-8 text-white shadow-2xl relative">
+        <div className="absolute top-0 right-0 p-8 opacity-20 text-6xl">✨</div>
+        <div className="relative z-10">
+          <h1 className="text-4xl font-black tracking-tight mb-2">
+            Welcome back, {session?.user?.name || "Poster"}
+          </h1>
+          <p className="text-gray-300 max-w-lg leading-relaxed">
+            Your decentralized workforce is ready. All tasks are matched with top-performing AI
+            agents via the TaskHive bridge.
           </p>
+          <div className="mt-6 flex items-center gap-4">
+            <Link
+              href="/dashboard/tasks/create"
+              className="group flex items-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-bold text-gray-900 shadow-xl transition-all hover:scale-105 active:scale-95"
+            >
+              <span>🚀</span>
+              Post New Task
+            </Link>
+          </div>
         </div>
-        <Link
-          href="/dashboard/tasks/create"
-          className="flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-gray-800"
-        >
-          <span>+</span>
-          Post a Task
-        </Link>
       </div>
 
       {/* Stats row */}
       {myTasks.length > 0 && (
-        <div className="mb-6 grid grid-cols-3 gap-4">
-          <StatCard label="Open" value={openCount} color="text-emerald-600" />
-          <StatCard label="In Progress" value={activeCount} color="text-blue-600" />
-          <StatCard label="Completed" value={completedCount} color="text-gray-600" />
+        <div className="mb-8 grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <StatCard label="Open for Bids" value={openCount} icon="🟢" color="emerald" />
+          <StatCard label="Active Work" value={activeCount} icon="⚡" color="blue" />
+          <StatCard label="Completed" value={completedCount} icon="🏆" color="gray" />
         </div>
       )}
+
+      {/* Header */}
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 tracking-tight">Active Operations</h2>
+          <p className="text-xs text-gray-400 mt-0.5 uppercase font-semibold tracking-widest">
+            Live Feed • {myTasks.length} Units
+          </p>
+        </div>
+      </div>
 
       {/* Task list */}
       {myTasks.length === 0 ? (
@@ -120,8 +112,8 @@ export default async function DashboardPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {myTasks.map((task) => {
-            const claimsCount = claimsCounts[task.id] || 0;
+          {myTasks.map((task: any) => {
+            const claimsCount = task.claims_count || 0;
             const isDeadlineSoon =
               task.deadline &&
               new Date(task.deadline).getTime() - Date.now() < 3 * 24 * 60 * 60 * 1000;
@@ -138,9 +130,8 @@ export default async function DashboardPage() {
                       {task.title}
                     </h3>
                     <span
-                      className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${
-                        statusColors[task.status] || "bg-gray-100 text-gray-600 border-gray-200"
-                      }`}
+                      className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusColors[task.status] || "bg-gray-100 text-gray-600 border-gray-200"
+                        }`}
                     >
                       {statusLabels[task.status] || task.status}
                     </span>
@@ -151,12 +142,12 @@ export default async function DashboardPage() {
                     )}
                   </div>
                   <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
-                    {task.categoryName && (
+                    {task.category_name && (
                       <span className="flex items-center gap-1">
-                        <span>📁</span> {task.categoryName}
+                        <span>📁</span> {task.category_name}
                       </span>
                     )}
-                    <span>Posted {new Date(task.createdAt).toLocaleDateString()}</span>
+                    <span>Posted {new Date(task.created_at).toLocaleDateString()}</span>
                     {task.deadline && (
                       <span className={isDeadlineSoon ? "font-semibold text-red-500" : ""}>
                         Due {new Date(task.deadline).toLocaleDateString()}
@@ -167,7 +158,7 @@ export default async function DashboardPage() {
                 </div>
                 <div className="ml-6 shrink-0 text-right">
                   <div className="text-xl font-bold text-gray-900">
-                    {task.budgetCredits}
+                    {task.budget_credits}
                   </div>
                   <div className="text-xs text-gray-400">credits</div>
                 </div>
@@ -184,15 +175,30 @@ function StatCard({
   label,
   value,
   color,
+  icon,
 }: {
   label: string;
   value: number;
   color: string;
+  icon: string;
 }) {
+  const colorMap: Record<string, string> = {
+    emerald: "text-emerald-600 bg-emerald-50 border-emerald-100",
+    blue: "text-blue-600 bg-blue-50 border-blue-100",
+    gray: "text-gray-600 bg-gray-50 border-gray-100",
+  };
+
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4">
-      <p className="text-xs font-medium text-gray-500">{label}</p>
-      <p className={`mt-1 text-2xl font-bold ${color}`}>{value}</p>
+    <div className={`rounded-2xl border ${colorMap[color]} p-5 shadow-sm backdrop-blur-sm transition-all hover:shadow-md`}>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wider text-gray-500 opacity-70">
+            {label}
+          </p>
+          <p className="mt-1 text-3xl font-black">{value}</p>
+        </div>
+        <span className="text-2xl">{icon}</span>
+      </div>
     </div>
   );
 }

@@ -1,10 +1,8 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getSession } from "@/lib/auth/session";
-import { db } from "@/lib/db/client";
-import { users } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
 import { LogoutButton } from "./logout-button";
+import { AutoRefresh } from "./auto-refresh";
 
 export default async function DashboardLayout({
   children,
@@ -16,24 +14,31 @@ export default async function DashboardLayout({
     redirect("/login");
   }
 
-  const [user] = await db
-    .select({
-      id: users.id,
-      name: users.name,
-      email: users.email,
-      creditBalance: users.creditBalance,
-    })
-    .from(users)
-    .where(eq(users.id, session.user.id))
-    .limit(1);
+  // Fetch user profile from Python backend
+  let user;
+  try {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const res = await fetch(`${apiUrl}/api/v1/user/profile`, {
+      headers: {
+        "X-User-ID": String(session.user.id),
+      },
+    });
 
-  if (!user) {
+    if (!res.ok) {
+      console.error(`Backend error: ${res.status}`);
+      redirect("/login");
+    }
+
+    user = await res.json();
+  } catch (error) {
+    console.error("Failed to fetch user profile:", error);
+    // If backend is unreachable, gracefully redirect to login
     redirect("/login");
   }
 
   const initials = user.name
     .split(" ")
-    .map((w) => w[0])
+    .map((w: string) => w[0])
     .join("")
     .toUpperCase()
     .slice(0, 2);
@@ -59,6 +64,7 @@ export default async function DashboardLayout({
           </p>
           <NavLink href="/dashboard" icon="📋">My Tasks</NavLink>
           <NavLink href="/dashboard/tasks/create" icon="✏️">Post a Task</NavLink>
+          <NavLink href="/dashboard/credits" icon="🪙">My Credits</NavLink>
 
           <p className="mb-1 mt-4 px-3 pt-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
             Operator
@@ -82,7 +88,7 @@ export default async function DashboardLayout({
           <div className="mb-3 flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2">
             <span className="text-xs font-medium text-amber-700">Credits</span>
             <span className="text-sm font-bold text-amber-900">
-              {user.creditBalance.toLocaleString()}
+              {user.credit_balance.toLocaleString()}
             </span>
           </div>
           <LogoutButton />
@@ -90,7 +96,10 @@ export default async function DashboardLayout({
       </aside>
 
       {/* Main content */}
-      <main className="ml-60 flex-1 p-8">{children}</main>
+      <main className="ml-60 flex-1 p-8">
+        <AutoRefresh />
+        {children}
+      </main>
     </div>
   );
 }
