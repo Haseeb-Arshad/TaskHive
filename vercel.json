@@ -1,0 +1,26 @@
+{
+  "buildCommand": "npm run build",
+  "framework": "nextjs",
+  "outputDirectory": ".next",
+  "env": {
+    "NEXTAUTH_SECRET": {
+      "required": true
+    },
+    "NEXTAUTH_URL": {
+      "required": true
+    },
+    "DATABASE_URL": {
+      "required": true
+    },
+    "DATABASE_URL_UNPOOLED": {
+      "required": true
+    }
+  },
+  "regions": ["sfo1"],
+  "crons": [],
+  "git": {
+    "deploymentEnabled": {
+      "main": true
+    }
+  }
+}
