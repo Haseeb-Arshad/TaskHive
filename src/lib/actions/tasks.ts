@@ -2,6 +2,7 @@
 
 import { requireSession } from "@/lib/auth/session";
 import { revalidatePath } from "next/cache";
+import { apiClient } from "@/lib/api-client";
 
 export async function createTask(formData: FormData) {
   const session = await requireSession();
@@ -20,10 +21,9 @@ export async function createTask(formData: FormData) {
       : 2,
   };
 
-  const res = await fetch("http://localhost:8000/api/v1/user/tasks", {
+  const res = await apiClient("/api/v1/user/tasks", {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
       "X-User-ID": String(session.user.id),
     },
     body: JSON.stringify(payload),
@@ -42,10 +42,9 @@ export async function createTask(formData: FormData) {
 export async function acceptClaim(taskId: number, claimId: number) {
   const session = await requireSession();
 
-  const res = await fetch(`http://localhost:8000/api/v1/user/tasks/${taskId}/accept-claim`, {
+  const res = await apiClient(`/api/v1/user/tasks/${taskId}/accept-claim`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
       "X-User-ID": String(session.user.id),
     },
     body: JSON.stringify({ claim_id: claimId }),
@@ -56,7 +55,7 @@ export async function acceptClaim(taskId: number, claimId: number) {
     try {
       const error = await res.json();
       errorDetail = error.detail || errorDetail;
-    } catch (e) {
+    } catch {
       // Not JSON
     }
     return { error: errorDetail };
@@ -72,10 +71,9 @@ export async function acceptDeliverable(
 ) {
   const session = await requireSession();
 
-  const res = await fetch(`http://localhost:8000/api/v1/user/tasks/${taskId}/accept-deliverable`, {
+  const res = await apiClient(`/api/v1/user/tasks/${taskId}/accept-deliverable`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
       "X-User-ID": String(session.user.id),
     },
     body: JSON.stringify({ deliverable_id: deliverableId }),
@@ -86,7 +84,7 @@ export async function acceptDeliverable(
     try {
       const error = await res.json();
       errorDetail = error.detail || errorDetail;
-    } catch (e) {
+    } catch {
       // Not JSON
     }
     return { error: errorDetail };
@@ -104,10 +102,9 @@ export async function requestRevision(
 ) {
   const session = await requireSession();
 
-  const res = await fetch(`http://localhost:8000/api/v1/user/tasks/${taskId}/request-revision`, {
+  const res = await apiClient(`/api/v1/user/tasks/${taskId}/request-revision`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
       "X-User-ID": String(session.user.id),
     },
     body: JSON.stringify({ deliverable_id: deliverableId, notes }),
@@ -118,7 +115,7 @@ export async function requestRevision(
     try {
       const error = await res.json();
       errorDetail = error.detail || errorDetail;
-    } catch (e) {
+    } catch {
       // Not JSON
     }
     return { error: errorDetail };
@@ -129,7 +126,7 @@ export async function requestRevision(
 }
 
 export async function getCategories() {
-  const res = await fetch("http://localhost:8000/api/v1/meta/categories");
+  const res = await apiClient("/api/v1/meta/categories");
   if (!res.ok) return [];
   return res.json();
 }
@@ -137,10 +134,9 @@ export async function getCategories() {
 export async function updateTask(taskId: number, description: string, requirements: string) {
   const session = await requireSession();
 
-  const res = await fetch(`http://localhost:8000/api/v1/user/tasks/${taskId}`, {
+  const res = await apiClient(`/api/v1/user/tasks/${taskId}`, {
     method: "PATCH",
     headers: {
-      "Content-Type": "application/json",
       "X-User-ID": String(session.user.id),
     },
     body: JSON.stringify({ description, requirements }),
@@ -151,7 +147,7 @@ export async function updateTask(taskId: number, description: string, requiremen
     try {
       const error = await res.json();
       errorDetail = error.detail || errorDetail;
-    } catch (e) { }
+    } catch { }
     return { error: errorDetail };
   }
 

@@ -5,108 +5,77 @@ import { updateTask } from "@/lib/actions/tasks";
 import { useRouter } from "next/navigation";
 
 export function ClarifyRequirementsForm({
-    taskId,
-    initialDescription,
-    initialRequirements
+  taskId, initialDescription, initialRequirements,
 }: {
-    taskId: number,
-    initialDescription: string,
-    initialRequirements: string | null
+  taskId: number;
+  initialDescription: string;
+  initialRequirements: string | null;
 }) {
-    const [isOpen, setIsOpen] = useState(false);
-    const [description, setDescription] = useState(initialDescription);
-    const [requirements, setRequirements] = useState(initialRequirements || "");
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const router = useRouter();
+  const [open, setOpen]               = useState(false);
+  const [desc, setDesc]               = useState(initialDescription);
+  const [reqs, setReqs]               = useState(initialRequirements || "");
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState<string | null>(null);
+  const router                        = useRouter();
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setLoading(true);
-        setError(null);
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true); setError(null);
+    const res = await updateTask(taskId, desc, reqs);
+    setLoading(false);
+    if (res.error) setError(res.error);
+    else { setOpen(false); router.refresh(); }
+  }
 
-        const res = await updateTask(taskId, description, requirements);
-        setLoading(false);
-
-        if (res.error) {
-            setError(res.error);
-        } else {
-            setIsOpen(false);
-            router.refresh();
-        }
-    };
-
-    if (!isOpen) {
-        return (
-            <button
-                onClick={() => setIsOpen(true)}
-                className="mt-4 inline-flex items-center gap-2 rounded-lg bg-orange-100 px-4 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-200 transition-colors"
-            >
-                <span>✍️</span> Respond & Clarify Requirements
-            </button>
-        );
-    }
-
+  if (!open) {
     return (
-        <div className="mt-4 rounded-xl border border-orange-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-sm font-bold text-gray-900 border-l-4 border-orange-400 pl-3">
-                    Clarify Your Needs
-                </h3>
-                <button
-                    onClick={() => setIsOpen(false)}
-                    className="text-gray-400 hover:text-gray-600 text-xs"
-                >
-                    Cancel
-                </button>
-            </div>
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">
-                        Mission Description
-                    </label>
-                    <textarea
-                        value={description}
-                        onChange={(e) => setDescription(e.target.value)}
-                        className="w-full rounded-lg border border-gray-200 p-3 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-all outline-none min-h-[100px]"
-                        placeholder="Address the agent's feedback by adding more detail here..."
-                        required
-                    />
-                </div>
-
-                <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">
-                        Acceptance Criteria (Refined)
-                    </label>
-                    <textarea
-                        value={requirements}
-                        onChange={(e) => setRequirements(e.target.value)}
-                        className="w-full rounded-lg border border-gray-200 p-3 text-sm focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-all outline-none min-h-[100px]"
-                        placeholder="List specific milestones or technical rules..."
-                    />
-                </div>
-
-                {error && (
-                    <p className="text-xs text-red-500 bg-red-50 p-2 rounded border border-red-100">
-                        {error}
-                    </p>
-                )}
-
-                <div className="flex gap-3 pt-2">
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        className="flex-1 rounded-lg bg-emerald-600 py-2.5 text-sm font-bold text-white shadow-lg shadow-emerald-100 hover:bg-emerald-700 disabled:opacity-50 transition-all"
-                    >
-                        {loading ? "Syncing..." : "Update Task & Notify Swarm"}
-                    </button>
-                </div>
-
-                <p className="text-[10px] text-center text-gray-400 italic">
-                    Tip: Agents automatically detect updates and re-evaluate within seconds.
-                </p>
-            </form>
-        </div>
+      <button
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm font-semibold text-stone-700 transition-all hover:-translate-y-px hover:border-stone-300 hover:shadow-sm"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+        Clarify requirements
+      </button>
     );
+  }
+
+  return (
+    <div className="a-scale rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="text-sm font-bold text-stone-900">Clarify Your Requirements</h3>
+        <button onClick={() => setOpen(false)} className="rounded-lg px-2 py-1 text-xs text-stone-400 hover:bg-stone-100 hover:text-stone-600">
+          Cancel
+        </button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">
+            Description
+          </label>
+          <textarea value={desc} onChange={(e) => setDesc(e.target.value)}
+            className="field" rows={4}
+            placeholder="Address the agent's feedback with more detail…" required />
+        </div>
+        <div>
+          <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">
+            Acceptance Criteria (refined)
+          </label>
+          <textarea value={reqs} onChange={(e) => setReqs(e.target.value)}
+            className="field" rows={3}
+            placeholder="List specific milestones or technical rules…" />
+        </div>
+
+        {error && (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>
+        )}
+
+        <button type="submit" disabled={loading}
+          className="flex items-center gap-2 rounded-xl bg-stone-900 px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-stone-800 disabled:opacity-50">
+          {loading && <span className="a-spin h-3.5 w-3.5 rounded-full border-2 border-white border-t-transparent" />}
+          {loading ? "Saving…" : "Update task & notify agents"}
+        </button>
+      </form>
+    </div>
+  );
 }

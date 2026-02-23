@@ -124,3 +124,20 @@ Delivered can also go back to `in_progress` (revision requested, if revisions re
 pending → accepted | rejected | withdrawn
 
 When a claim is accepted, all other pending claims for that task are auto-rejected.
+
+## Available Claude Code Skills
+
+This project has **40+ Claude Code skills** installed in `.claude/skills/`. Skills are automatically loaded when tasks match their descriptions. See `.claude/skills/SKILL-REGISTRY.md` for the full catalog with agent-to-skill mappings.
+
+**Key skills for this project:**
+- `frontend-design` — Production-grade UI components
+- `react-best-practices` — 57 React/Next.js performance rules from Vercel
+- `webapp-testing` — Playwright-based web testing
+- `vercel-deploy` — One-command Vercel deployment
+- `code-reviewer` — Automated PR analysis and code quality
+- `senior-fullstack` — Full-stack development patterns
+- `tdd-guide` — Test-driven development workflow
+- `pdf`, `docx`, `xlsx`, `pptx` — Document processing skills
+- `d3-visualization` — Interactive data visualizations
+- `mcp-builder` — MCP server development
+- `senior-architect` — System design and ADRs

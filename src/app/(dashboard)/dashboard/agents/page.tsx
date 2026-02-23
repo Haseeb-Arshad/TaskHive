@@ -2,182 +2,137 @@ import { getSession } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
 import { RegisterAgentForm } from "./register-form";
 import { AgentKeyActions } from "./key-actions";
+import { apiClient } from "@/lib/api-client";
 
 export default async function AgentsPage() {
   const session = await getSession();
   if (!session?.user?.id) redirect("/login");
 
-  // Fetch agents from Python backend
-  const res = await fetch("http://localhost:8000/api/v1/user/agents", {
-    headers: {
-      "X-User-ID": String(session.user.id),
-    },
-  });
-
-  if (!res.ok) {
-    return (
-      <div className="rounded-lg bg-red-50 p-4 text-red-700">
-        Failed to load agents from backend.
-      </div>
-    );
+  let agents: any[] = [];
+  try {
+    const res = await apiClient("/api/v1/user/agents", {
+      headers: { "X-User-ID": String(session.user.id) },
+    });
+    if (!res.ok) return <ErrBox>Failed to load agents (Backend Error: {res.status}).</ErrBox>;
+    agents = await res.json();
+  } catch {
+    return <ErrBox>Could not connect to backend. Make sure the Python API is running on port 8000.</ErrBox>;
   }
-
-  const myAgents = await res.json();
 
   return (
     <div className="mx-auto max-w-3xl">
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">My Agents</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Agents are API-key-based identities. External code uses their key to
-          browse tasks, submit claims, and deliver work on your behalf.
+      <div className="a-up mb-8">
+        <h1 className="font-[family-name:var(--font-display)] text-2xl text-stone-900">My Agents</h1>
+        <p className="mt-1 text-sm text-stone-500">
+          Agents are API-key identities. External code authenticates with their key to browse
+          tasks, claim work, and submit deliverables.
         </p>
       </div>
 
-      {/* Explainer banner */}
-      <div className="mb-8 rounded-xl border border-blue-200 bg-blue-50 p-5">
-        <div className="flex gap-3">
-          <div className="text-xl">🤖</div>
-          <div>
-            <h2 className="mb-1 font-semibold text-blue-900">
-              How agents work
-            </h2>
-            <p className="mb-3 text-sm text-blue-800">
-              An agent registered here is just a set of credentials — it doesn&apos;t
-              automatically do anything on its own. To make an agent actually
-              work, you run an external bot or script that authenticates with its
-              API key and calls the TaskHive REST API.
+      {/* How it works */}
+      <div className="a-up d1 mb-8 overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
+        <div className="border-b border-stone-100 bg-stone-50/60 px-6 py-3.5">
+          <p className="text-[11px] font-bold uppercase tracking-[.12em] text-stone-500">How agents work</p>
+        </div>
+        <div className="flex gap-4 p-6">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#E5484D]/10">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#E5484D" strokeWidth="1.8" className="h-[18px] w-[18px]"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M12 11V7"/><circle cx="12" cy="5" r="2"/><path d="M8 16h.01M16 16h.01"/></svg>
+          </div>
+          <div className="text-sm text-stone-600 leading-relaxed">
+            <p className="mb-3">
+              An agent is just credentials — it doesn&apos;t act automatically. To make it work,
+              run an external bot or script that authenticates with its API key.
             </p>
-            <div className="space-y-1 text-sm text-blue-800">
-              <p className="font-medium">Quick demo (runs the full lifecycle):</p>
-              <code className="block rounded-lg bg-blue-900 px-3 py-2 text-xs text-blue-100">
-                npm run demo-bot
-              </code>
-              <p className="mt-2 font-medium">Or make manual API calls with your key:</p>
-              <code className="block rounded-lg bg-blue-900 px-3 py-2 text-xs text-blue-100">
-                curl -H &quot;Authorization: Bearer YOUR_KEY&quot; https://your-app.vercel.app/api/v1/tasks
-              </code>
+            <div className="space-y-3">
+              <div>
+                <p className="mb-1 text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">Quick demo (full lifecycle):</p>
+                <code className="block rounded-lg bg-[#131316] px-4 py-2.5 text-xs font-mono text-stone-300">
+                  npm run demo-bot
+                </code>
+              </div>
+              <div>
+                <p className="mb-1 text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">Manual API call:</p>
+                <code className="block rounded-lg bg-[#131316] px-4 py-2.5 text-xs font-mono text-stone-300">
+                  curl -H &quot;Authorization: Bearer YOUR_KEY&quot; https://your-app.vercel.app/api/v1/tasks
+                </code>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       {/* Register new agent */}
-      <div className="mb-8">
-        <h2 className="mb-3 text-base font-semibold text-gray-900">
-          Register a New Agent
-        </h2>
+      <div className="a-up d2 mb-8">
+        <p className="mb-3 text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">Register a new agent</p>
         <RegisterAgentForm />
       </div>
 
-      {/* Existing agents */}
-      <div>
-        <h2 className="mb-3 text-base font-semibold text-gray-900">
-          Registered Agents ({myAgents.length})
-        </h2>
-        {myAgents.length === 0 ? (
-          <div className="rounded-xl border-2 border-dashed border-gray-200 bg-white p-10 text-center">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-2xl">
-              🤖
+      {/* Agent list */}
+      <div className="a-up d3">
+        <p className="mb-3 text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">
+          Registered agents &middot; {agents.length}
+        </p>
+
+        {agents.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-stone-200 bg-white py-16 text-center">
+            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-stone-100">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-6 w-6 text-stone-400"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M12 11V7"/><circle cx="12" cy="5" r="2"/><path d="M8 16h.01M16 16h.01"/></svg>
             </div>
-            <p className="text-sm text-gray-500">
-              No agents yet. Register one above to get an API key.
-            </p>
+            <p className="text-sm text-stone-500">No agents yet. Register one above to get started.</p>
           </div>
         ) : (
-          <div className="space-y-4">
-            {myAgents.map((agent: any) => (
-              <div
-                key={agent.id}
-                className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
-              >
-                {/* Agent header */}
-                <div className="flex items-start justify-between p-5">
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gray-900 text-lg font-bold text-white">
-                      {agent.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-gray-900">
-                          {agent.name}
-                        </h3>
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${agent.status === "active"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : agent.status === "paused"
-                              ? "bg-amber-100 text-amber-700"
-                              : "bg-red-100 text-red-700"
-                            }`}
-                        >
-                          {agent.status}
-                        </span>
+          <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
+            <div className="divide-y divide-stone-100">
+              {agents.map((agent: any) => (
+                <div key={agent.id} className="p-5">
+                  {/* Agent header */}
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-stone-800 text-base font-bold text-stone-200">
+                        {agent.name.charAt(0).toUpperCase()}
                       </div>
-                      <p className="mt-0.5 text-sm text-gray-500">
-                        {agent.description}
-                      </p>
-                      {/* Operator info — fixes name confusion */}
-                      <p className="mt-1 text-xs text-gray-400">
-                        Operated by{" "}
-                        <span className="font-medium text-gray-600">
-                          {agent.operator_name}
-                        </span>{" "}
-                        ({agent.operator_email})
-                      </p>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold text-stone-900">{agent.name}</h3>
+                          <StatusBadge status={agent.status} />
+                        </div>
+                        <p className="mt-0.5 text-sm text-stone-500">{agent.description}</p>
+                        <p className="mt-0.5 text-xs text-stone-400">
+                          Operated by <span className="font-medium text-stone-600">{agent.operator_name}</span>
+                        </p>
+                      </div>
                     </div>
+                    <AgentKeyActions agentId={agent.id} hasKey={!!agent.api_key_prefix} />
                   </div>
-                  <AgentKeyActions agentId={agent.id} hasKey={!!agent.api_key_prefix} />
+
+                  {/* Capabilities */}
+                  {agent.capabilities?.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {agent.capabilities.map((cap: string) => (
+                        <span key={cap} className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-0.5 text-xs font-medium text-stone-600">
+                          {cap}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Stats grid */}
+                  <div className="mt-4 grid grid-cols-4 divide-x divide-stone-100 rounded-xl border border-stone-100 bg-stone-50/60">
+                    <StatCell label="Reputation" value={`${agent.reputation_score?.toFixed(0) ?? 50}/100`} />
+                    <StatCell label="Tasks done" value={String(agent.tasks_completed)} />
+                    <StatCell label="API key" value={agent.api_key_prefix ? `${agent.api_key_prefix}…` : "—"} mono />
+                    <StatCell label="Registered" value={new Date(agent.created_at).toLocaleDateString()} />
+                  </div>
+
+                  {!agent.api_key_prefix && (
+                    <p className="mt-2.5 text-xs text-amber-600">
+                      No API key — this agent cannot authenticate. Generate a key above.
+                    </p>
+                  )}
                 </div>
-
-                {/* Capabilities */}
-                {agent.capabilities && agent.capabilities.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 border-t border-gray-100 px-5 py-3">
-                    {agent.capabilities.map((cap: string) => (
-                      <span
-                        key={cap}
-                        className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600"
-                      >
-                        {cap}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {/* Stats row */}
-                <div className="grid grid-cols-4 divide-x divide-gray-100 border-t border-gray-100 bg-gray-50">
-                  <StatCell
-                    label="Reputation"
-                    value={`${agent.reputation_score?.toFixed(0) ?? 50}/100`}
-                  />
-                  <StatCell
-                    label="Tasks Done"
-                    value={String(agent.tasks_completed)}
-                  />
-                  <StatCell
-                    label="API Key"
-                    value={
-                      agent.api_key_prefix
-                        ? `${agent.api_key_prefix}…`
-                        : "No key"
-                    }
-                    mono
-                  />
-                  <StatCell
-                    label="Registered"
-                    value={new Date(agent.created_at).toLocaleDateString()}
-                  />
-                </div>
-
-                {/* No key warning */}
-                {!agent.api_key_prefix && (
-                  <div className="border-t border-amber-200 bg-amber-50 px-5 py-2.5 text-xs text-amber-700">
-                    ⚠️ No API key — this agent cannot authenticate. Generate one
-                    using the button above.
-                  </div>
-                )}
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -185,21 +140,29 @@ export default async function AgentsPage() {
   );
 }
 
-function StatCell({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
+/* ── Sub-components ──────────────────────────────────── */
+function StatusBadge({ status }: { status: string }) {
+  const style: Record<string, string> = {
+    active:   "bg-emerald-50 text-emerald-700 border-emerald-200",
+    paused:   "bg-amber-50 text-amber-700 border-amber-200",
+    inactive: "bg-red-50 text-red-600 border-red-200",
+  };
+  return (
+    <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${style[status] || "bg-stone-100 text-stone-600 border-stone-200"}`}>
+      {status}
+    </span>
+  );
+}
+
+function StatCell({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="px-4 py-3">
-      <p className="mb-0.5 text-xs text-gray-400">{label}</p>
-      <p className={`text-sm font-semibold text-gray-700 ${mono ? "font-mono" : ""}`}>
-        {value}
-      </p>
+      <p className="mb-0.5 text-[10px] font-bold uppercase tracking-[.12em] text-stone-400">{label}</p>
+      <p className={`text-sm font-semibold text-stone-700 ${mono ? "font-mono text-xs" : ""}`}>{value}</p>
     </div>
   );
+}
+
+function ErrBox({ children }: { children: React.ReactNode }) {
+  return <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">{children}</div>;
 }

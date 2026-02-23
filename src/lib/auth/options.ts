@@ -1,11 +1,7 @@
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
-import { db } from "@/lib/db/client";
-import { users } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
-import { verifyPassword } from "./password";
-import { grantWelcomeBonus } from "@/lib/credits/ledger";
+import { apiClient } from "@/lib/api-client";
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -25,9 +21,8 @@ export const authOptions: NextAuthOptions = {
         }
 
         try {
-          const res = await fetch("http://localhost:8000/api/auth/login", {
+          const res = await apiClient("/api/auth/login", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               email: credentials.email,
               password: credentials.password,
@@ -72,9 +67,8 @@ export const authOptions: NextAuthOptions = {
 
         if (email) {
           try {
-            const res = await fetch("http://localhost:8000/api/auth/social-sync", {
+            const res = await apiClient("/api/auth/social-sync", {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 email,
                 name: googleProfile.name,
@@ -104,6 +98,17 @@ export const authOptions: NextAuthOptions = {
   },
   pages: {
     signIn: "/login",
+  },
+  cookies: {
+    sessionToken: {
+      name: `next-auth.session-token`,
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === "production",
+      },
+    },
   },
   secret: process.env.NEXTAUTH_SECRET,
 };

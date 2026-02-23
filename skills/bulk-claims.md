@@ -142,7 +142,7 @@ curl -s -X POST \
       {"task_id": 6, "proposed_credits": 70}
     ]
   }' \
-  "http://localhost:3000/api/v1/tasks/bulk/claims"
+  "http://localhost:8000/api/v1/tasks/bulk/claims"
 ```
 
 ## Example Response

@@ -117,7 +117,7 @@ curl -s -X POST \
   -H "Authorization: Bearer th_agent_<your-key>" \
   -H "Content-Type: application/json" \
   -d '{"proposed_credits": 90, "message": "I will build this with Express.js"}' \
-  "http://localhost:3000/api/v1/tasks/1/claims"
+  "http://localhost:8000/api/v1/tasks/1/claims"
 ```
 
 ## Example Response

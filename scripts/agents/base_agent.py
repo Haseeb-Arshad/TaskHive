@@ -1,0 +1,413 @@
+"""
+TaskHive Agent Swarm — Shared Base Module
+
+Shared utilities used by all specialized agents:
+  - TaskHiveClient (API client)
+  - LLM call helpers (Anthropic Claude)
+  - Logging
+  - Configuration
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+import time
+import traceback
+from datetime import datetime, timezone
+from pathlib import Path
+
+import httpx
+from dotenv import load_dotenv
+
+# Load environment
+_script_dir = Path(__file__).parent.parent.parent  # TaskHive/
+load_dotenv(_script_dir / ".env")
+load_dotenv(_script_dir / "reviewer-agent" / ".env")
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════
+
+BASE_URL = os.environ.get("TASKHIVE_BASE_URL", os.environ.get("NEXTAUTH_URL", "http://localhost:3000"))
+ANTHROPIC_KEY = os.environ.get("ANTHROPIC_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+KIMI_KEY = os.environ.get("Kimi_Key", "") or os.environ.get("KIMI_KEY", "")
+MOONSHOT_API_KEY = os.environ.get("MOONSHOT_API_KEY", "")
+OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+
+DEFAULT_CAPABILITIES = ["python", "javascript", "typescript", "sql", "api-design", "data-processing"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LOGGING
+# ═══════════════════════════════════════════════════════════════════════════
+
+def log(icon: str, msg: str, agent_name: str = "", **kwargs):
+    ts = datetime.now().strftime("%H:%M:%S")
+    prefix = f"[{agent_name}] " if agent_name else ""
+    extra = " ".join(f"{k}={v}" for k, v in kwargs.items()) if kwargs else ""
+    print(f"  [{ts}] {icon} {prefix}{msg} {extra}", flush=True)
+
+
+def log_think(msg: str, agent_name: str = "", **kw):
+    log("THINK", msg, agent_name, **kw)
+
+
+def log_act(msg: str, agent_name: str = "", **kw):
+    log("ACT  ", msg, agent_name, **kw)
+
+
+def log_ok(msg: str, agent_name: str = ""):
+    prefix = f"[{agent_name}] " if agent_name else ""
+    print(f"\033[32m[OK]     {prefix}{msg}\033[0m", flush=True)
+
+
+def log_warn(msg: str, agent_name: str = "", **kw):
+    log("WARN ", msg, agent_name, **kw)
+
+
+def log_err(msg: str, agent_name: str = "", **kw):
+    log("ERROR", msg, agent_name, **kw)
+
+
+def log_wait(msg: str, agent_name: str = "", **kw):
+    log(" ... ", msg, agent_name, **kw)
+
+
+def iso_to_datetime(iso_str: str | None) -> datetime | None:
+    """Safely convert ISO string (with Z or +00:00) to datetime object."""
+    if not iso_str:
+        return None
+    try:
+        clean_str = iso_str.replace("Z", "+00:00")
+        return datetime.fromisoformat(clean_str)
+    except Exception:
+        return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LLM CLIENT
+# ═══════════════════════════════════════════════════════════════════════════
+
+def llm_call(system: str, user: str, max_tokens: int = 2048, provider: str = "kimi") -> str:
+    """Multi-provider LLM call wrapper."""
+    if provider == "claude":
+        resp = httpx.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": max_tokens,
+                "system": system,
+                "messages": [{"role": "user", "content": user}],
+            },
+            timeout=300.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["content"][0]["text"]
+    
+    elif provider == "kimi":
+        api_key = MOONSHOT_API_KEY or KIMI_KEY
+        if not api_key:
+            raise ValueError("Kimi/Moonshot API key not configured")
+        resp = httpx.post(
+            "https://api.moonshot.ai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "kimi-k2-thinking",
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "temperature": 0.3,
+                "max_tokens": max_tokens,
+            },
+            timeout=300.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
+
+    elif provider == "trinity":
+        if not OPENROUTER_KEY:
+            raise ValueError("OpenRouter API key not configured")
+        resp = httpx.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "arcee-ai/trinity-large-preview:free",
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "temperature": 0.3,
+                "max_tokens": max_tokens,
+            },
+            timeout=120.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
+    
+    else:
+        raise ValueError(f"Unknown provider: {provider}")
+
+
+def smart_llm_call(system: str, user: str, max_tokens: int = 2048, complexity: str = "routine") -> str:
+    """Routes to Kimi/Trinity first, falling back to Claude only if needed or complex."""
+    if complexity == "high":
+        providers = ["claude", "kimi", "trinity"]
+    else:
+        providers = ["kimi", "trinity", "claude"]
+    
+    last_error = "No providers attempted"
+    for p in providers:
+        try:
+            return llm_call(system, user, max_tokens, provider=p)
+        except Exception as e:
+            last_error = str(e)
+            log_warn(f"Provider {p} failed: {e}. Falling back...")
+    
+    log_err(f"All LLMs failed for smart_llm_call. Last error: {last_error}")
+    return ""
+
+
+def llm_json(system: str, user: str, max_tokens: int = 1024, complexity: str = "routine") -> dict:
+    """LLM call that returns parsed JSON, using smart routing."""
+    raw = smart_llm_call(system, user, max_tokens=max_tokens, complexity=complexity)
+    if not raw:
+        return {}
+    first_brace = raw.find("{")
+    last_brace = raw.rfind("}")
+    if first_brace != -1 and last_brace != -1:
+        try:
+            return json.loads(raw[first_brace : last_brace + 1])
+        except Exception as e:
+            log_err(f"JSON extract failed: {e}")
+            return {"_raw": raw}
+    return {"_raw": raw}
+
+
+def kimi_enhance_prompt(prompt: str) -> str:
+    """Uses Kimi K2 Thinking (Direct API) to enhance task requirements into a high-end implementation blueprint."""
+    api_key = MOONSHOT_API_KEY or KIMI_KEY
+    if not api_key:
+        log_warn("Moonshot/Kimi API key is not configured. Falling back to Trinity or raw prompt.")
+        return trinity_enhance_prompt(prompt)
+
+    sys_prompt = "You are a world-class Staff Software Architect. The user will provide raw, basic task requirements. Your job is to transform these requirements into an extremely detailed, high-level technical blueprint and specification. Add best practices, edge-case handling, precise technological choices, and step-by-step logic."
+    try:
+        resp = httpx.post(
+            "https://api.moonshot.ai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "kimi-k2-thinking",
+                "messages": [
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": f"Please enhance these raw requirements into a detailed architectural blueprint:\n\n{prompt}"},
+                ],
+                "temperature": 0.3,
+                "max_tokens": 4000,
+            },
+            timeout=300.0,
+        )
+        data = resp.json()
+        if "choices" in data and data["choices"]:
+            enhanced = data["choices"][0]["message"]["content"]
+            # Cap output to prevent Claude from generating oversized JSON
+            if len(enhanced) > 3000:
+                log_warn(f"Kimi blueprint was {len(enhanced)} chars — trimming to 3000", "Kimi")
+                enhanced = enhanced[:3000] + "\n\n[Blueprint truncated for token safety]"
+            return enhanced
+        else:
+            log_warn(f"Moonshot Direct API failed, falling back to Trinity: {data}")
+            return trinity_enhance_prompt(prompt)
+    except Exception as e:
+        log_err(f"Moonshot Direct API failed: {e}. Falling back to Trinity.")
+        return trinity_enhance_prompt(prompt)
+
+
+def trinity_enhance_prompt(prompt: str) -> str:
+    """Uses Arcee-AI Trinity Large Preview (Free via OpenRouter) as an alternative enhancement model."""
+    if not OPENROUTER_KEY:
+        log_warn("OPENROUTER_API_KEY is not configured. Returning raw prompt.")
+        return prompt
+
+    sys_prompt = "You are a world-class Staff Software Architect. Enhance these basic requirements into a detailed technical specification."
+    try:
+        resp = httpx.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "arcee-ai/trinity-large-preview:free",
+                "messages": [
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.3,
+                "max_tokens": 3000,
+            },
+            timeout=120.0,
+        )
+        data = resp.json()
+        if "choices" in data and data["choices"]:
+            return data["choices"][0]["message"]["content"]
+        else:
+            log_warn(f"Trinity Free API failure: {data}")
+            return prompt
+    except Exception as e:
+        log_err(f"Trinity enhancement failed: {e}")
+        return prompt
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# API CLIENT
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TaskHiveClient:
+    """API client for TaskHive."""
+
+    def __init__(self, base_url: str, api_key: str = None):
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self.http = httpx.Client(base_url=self.base_url, timeout=60.0)
+        self.agent_id = None
+        self.agent_name = None
+
+    def _headers(self) -> dict:
+        h = {"Content-Type": "application/json"}
+        if self.api_key:
+            h["Authorization"] = f"Bearer {self.api_key}"
+        return h
+
+    def get(self, path: str, params: dict = None) -> dict:
+        resp = self.http.get(path, headers=self._headers(), params=params)
+        return resp.json()
+
+    def post(self, path: str, json_data: dict = None) -> dict:
+        resp = self.http.post(path, headers=self._headers(), json=json_data)
+        return resp.json()
+
+    def browse_tasks(self, status: str = "open", limit: int = 20) -> list[dict]:
+        """Browse available tasks."""
+        resp = self.get("/api/v1/tasks", {"status": status, "limit": limit, "sort": "newest"})
+        if resp.get("ok"):
+            return resp.get("data", [])
+        return []
+
+    def get_task(self, task_id: int) -> dict | None:
+        """Get full task details."""
+        resp = self.get(f"/api/v1/tasks/{task_id}")
+        if resp.get("ok"):
+            return resp.get("data")
+        return None
+
+    def claim_task(self, task_id: int, proposed_credits: int, message: str) -> dict:
+        """Submit a claim on a task."""
+        return self.post(f"/api/v1/tasks/{task_id}/claims", {
+            "proposed_credits": proposed_credits,
+            "message": message,
+        })
+
+    def submit_deliverable(self, task_id: int, content: str) -> dict:
+        """Submit a deliverable for a task."""
+        return self.post(f"/api/v1/tasks/{task_id}/deliverables", {
+            "content": content,
+        })
+
+    def get_my_tasks(self, status: str = None) -> list[dict]:
+        """Get tasks assigned to this agent."""
+        params = {}
+        if status:
+            params["status"] = status
+        resp = self.get("/api/v1/agents/me/tasks", params)
+        if resp.get("ok"):
+            return resp.get("data", [])
+        return []
+
+    def get_my_claims(self, status: str = None) -> list[dict]:
+        """Get this agent's claims."""
+        params = {}
+        if status:
+            params["status"] = status
+        resp = self.get("/api/v1/agents/me/claims", params)
+        if resp.get("ok"):
+            return resp.get("data", [])
+        return []
+
+    def get_profile(self) -> dict | None:
+        """Get agent profile."""
+        resp = self.http.get("/api/v1/agents/me", headers=self._headers())
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("ok"):
+                profile = data.get("data", {})
+                self.agent_id = profile.get("id")
+                self.agent_name = profile.get("name")
+                return profile
+        return None
+
+    def post_remark(self, task_id: int, remark: str) -> dict:
+        """Post a feedback remark on a task."""
+        return self.post(f"/api/v1/tasks/{task_id}/remarks", {"remark": remark})
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CONVENIENCE: Write files + commit in one step
+# ═══════════════════════════════════════════════════════════════════════════
+
+def step_commit(
+    task_dir: Path,
+    description: str,
+    files: list[dict],
+    push: bool = False,
+) -> str | None:
+    """
+    Write files to disk and commit with a descriptive message.
+    
+    Args:
+        task_dir: Path to the task workspace
+        description: Human-readable step description (used as commit msg)
+        files: List of {"path": "relative/path", "content": "file content"}
+        push: Whether to push after committing
+    
+    Returns:
+        Commit hash on success, None on failure.
+    """
+    from agents.git_ops import commit_step as _commit, push_to_remote, append_commit_log
+
+    # Write files
+    for f in files:
+        file_path = task_dir / f["path"]
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(f["content"], encoding="utf-8")
+
+    # Commit
+    commit_msg = f"feat: {description}" if not description.startswith(("feat:", "fix:", "chore:", "test:", "docs:")) else description
+    h = _commit(task_dir, commit_msg)
+    
+    if h:
+        append_commit_log(task_dir, h, commit_msg)
+        if push:
+            push_to_remote(task_dir)
+
+    return h

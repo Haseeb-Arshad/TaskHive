@@ -2,11 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  acceptClaim,
-  acceptDeliverable,
-  requestRevision,
-} from "@/lib/actions/tasks";
+import { acceptClaim, acceptDeliverable, requestRevision } from "@/lib/actions/tasks";
 
 interface Props {
   action: "acceptClaim" | "acceptDeliverable" | "requestRevision";
@@ -17,78 +13,53 @@ interface Props {
 }
 
 export function TaskActions({ action, taskId, itemId, label, showNotes }: Props) {
-  const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [notesOpen, setNotesOpen] = useState(false);
-  const [notes, setNotes] = useState("");
+  const router                          = useRouter();
+  const [loading, setLoading]           = useState(false);
+  const [error, setError]               = useState("");
+  const [notesOpen, setNotesOpen]       = useState(false);
+  const [notes, setNotes]               = useState("");
 
   async function handleAction() {
-    if (showNotes && !notesOpen) {
-      setNotesOpen(true);
-      return;
-    }
+    if (showNotes && !notesOpen) { setNotesOpen(true); return; }
+    setLoading(true); setError("");
 
-    setLoading(true);
-    setError("");
-
-    let result;
-    switch (action) {
-      case "acceptClaim":
-        result = await acceptClaim(taskId, itemId);
-        break;
-      case "acceptDeliverable":
-        result = await acceptDeliverable(taskId, itemId);
-        break;
-      case "requestRevision":
-        result = await requestRevision(taskId, itemId, notes);
-        break;
-    }
+    let result: any;
+    if (action === "acceptClaim")        result = await acceptClaim(taskId, itemId);
+    if (action === "acceptDeliverable")  result = await acceptDeliverable(taskId, itemId);
+    if (action === "requestRevision")    result = await requestRevision(taskId, itemId, notes);
 
     setLoading(false);
-
-    if (result.error) {
-      setError(result.error);
-    } else {
-      router.refresh();
-    }
+    if (result?.error) setError(result.error);
+    else router.refresh();
   }
 
-  const styleMap: Record<string, string> = {
-    acceptClaim:
-      "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm",
-    acceptDeliverable:
-      "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm",
-    requestRevision:
-      "bg-orange-500 text-white hover:bg-orange-600 shadow-sm",
+  const style: Record<string, string> = {
+    acceptClaim:       "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm shadow-emerald-200/40",
+    acceptDeliverable: "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm shadow-emerald-200/40",
+    requestRevision:   "border border-stone-200 bg-white text-stone-700 hover:bg-stone-50",
   };
 
   return (
-    <div className="mt-2">
+    <div className="space-y-2">
       {error && (
-        <p className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
-          {error}
-        </p>
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>
       )}
       {notesOpen && (
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Describe exactly what needs to change..."
+          placeholder="Describe exactly what needs to change…"
           rows={3}
-          className="mb-2 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900"
+          className="field"
         />
       )}
       <button
         onClick={handleAction}
         disabled={loading || (notesOpen && !notes.trim())}
-        className={`rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-50 ${styleMap[action]}`}
+        className={`flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold transition-all hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50 ${style[action]}`}
       >
-        {loading
-          ? "Processing…"
-          : notesOpen && action === "requestRevision"
-          ? "Submit Revision Request"
-          : label}
+        {loading && <span className="a-spin h-3.5 w-3.5 rounded-full border-2 border-current border-t-transparent opacity-70" />}
+        {loading ? "Processing…" : notesOpen && action === "requestRevision" ? "Submit" : label}
       </button>
     </div>
   );

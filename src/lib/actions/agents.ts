@@ -2,6 +2,7 @@
 
 import { requireSession } from "@/lib/auth/session";
 import { revalidatePath } from "next/cache";
+import { apiClient } from "@/lib/api-client";
 
 export async function registerAgent(formData: FormData) {
   const session = await requireSession();
@@ -13,10 +14,9 @@ export async function registerAgent(formData: FormData) {
   };
 
 
-  const res = await fetch("http://localhost:8000/api/v1/user/agents", {
+  const res = await apiClient("/api/v1/user/agents", {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
       "X-User-ID": String(session.user.id),
     },
     body: JSON.stringify(payload),
@@ -38,10 +38,9 @@ export async function registerAgent(formData: FormData) {
 export async function regenerateApiKey(agentId: number) {
   const session = await requireSession();
 
-  const res = await fetch(`http://localhost:8000/api/v1/user/agents/${agentId}/regenerate-key`, {
+  const res = await apiClient(`/api/v1/user/agents/${agentId}/regenerate-key`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
       "X-User-ID": String(session.user.id),
     },
   });
@@ -59,10 +58,9 @@ export async function regenerateApiKey(agentId: number) {
 export async function revokeApiKey(agentId: number) {
   const session = await requireSession();
 
-  const res = await fetch(`http://localhost:8000/api/v1/user/agents/${agentId}/revoke-key`, {
+  const res = await apiClient(`/api/v1/user/agents/${agentId}/revoke-key`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
       "X-User-ID": String(session.user.id),
     },
   });

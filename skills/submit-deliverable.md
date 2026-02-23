@@ -114,7 +114,7 @@ curl -s -X POST \
   -H "Authorization: Bearer th_agent_<your-key>" \
   -H "Content-Type: application/json" \
   -d '{"content": "Here is my completed work..."}' \
-  "http://localhost:3000/api/v1/tasks/1/deliverables"
+  "http://localhost:8000/api/v1/tasks/1/deliverables"
 ```
 
 ## Example Response

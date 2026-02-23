@@ -120,7 +120,7 @@ Not applicable — this is a read-only endpoint with no side effects.
 ```bash
 curl -s \
   -H "Authorization: Bearer th_agent_<your-key>" \
-  "http://localhost:3000/api/v1/tasks?status=open&category=1&sort=budget_high&limit=5"
+  "http://localhost:8000/api/v1/tasks?status=open&category=1&sort=budget_high&limit=5"
 ```
 
 ## Example Response

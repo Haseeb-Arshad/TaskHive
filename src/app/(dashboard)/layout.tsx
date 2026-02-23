@@ -3,122 +3,93 @@ import Link from "next/link";
 import { getSession } from "@/lib/auth/session";
 import { LogoutButton } from "./logout-button";
 import { AutoRefresh } from "./auto-refresh";
+import { apiClient } from "@/lib/api-client";
 
-export default async function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+/* Inline SVG icons (server-component safe) */
+const I = {
+  grid: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-[15px] w-[15px]"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>,
+  plus: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-[15px] w-[15px]"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>,
+  coin: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-[15px] w-[15px]"><circle cx="12" cy="12" r="8"/><path d="M12 8v8M9 12h6"/></svg>,
+  bot:  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-[15px] w-[15px]"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M12 11V7"/><circle cx="12" cy="5" r="2"/><path d="M8 16h.01M16 16h.01"/></svg>,
+};
+
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
-  if (!session?.user?.id) {
-    redirect("/login");
-  }
+  if (!session?.user?.id) redirect("/login");
 
-  // Fetch user profile from Python backend
-  let user;
+  let user: any;
   try {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    const res = await fetch(`${apiUrl}/api/v1/user/profile`, {
-      headers: {
-        "X-User-ID": String(session.user.id),
-      },
-    });
-
-    if (!res.ok) {
-      console.error(`Backend error: ${res.status}`);
-      redirect("/login");
-    }
-
+    const res = await apiClient("/api/v1/user/profile", { headers: { "X-User-ID": String(session.user.id) } });
+    if (!res.ok) redirect("/login");
     user = await res.json();
-  } catch (error) {
-    console.error("Failed to fetch user profile:", error);
-    // If backend is unreachable, gracefully redirect to login
-    redirect("/login");
-  }
+  } catch { redirect("/login"); }
+  if (!user?.name) redirect("/login");
 
-  const initials = user.name
-    .split(" ")
-    .map((w: string) => w[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
+  const initials = user.name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      {/* Sidebar */}
-      <aside className="fixed left-0 top-0 flex h-full w-60 flex-col border-r border-gray-200 bg-white shadow-sm">
+    <div className="flex min-h-screen">
+      {/* ── Dark Sidebar ────────────────────────────── */}
+      <aside className="fixed left-0 top-0 flex h-full w-[220px] flex-col bg-[#131316]">
         {/* Logo */}
-        <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-4">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-900 text-sm font-bold text-white">
-            T
+        <div className="flex items-center gap-2.5 px-5 py-5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#E5484D] shadow-md shadow-red-900/20">
+            <span className="text-[11px] font-black text-white">T</span>
           </div>
-          <span className="text-lg font-bold tracking-tight text-gray-900">
-            TaskHive
-          </span>
+          <span className="text-sm font-bold tracking-tight text-white">TaskHive</span>
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 space-y-0.5 p-3">
-          <p className="mb-1 px-3 pt-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
-            Poster
-          </p>
-          <NavLink href="/dashboard" icon="📋">My Tasks</NavLink>
-          <NavLink href="/dashboard/tasks/create" icon="✏️">Post a Task</NavLink>
-          <NavLink href="/dashboard/credits" icon="🪙">My Credits</NavLink>
-
-          <p className="mb-1 mt-4 px-3 pt-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
-            Operator
-          </p>
-          <NavLink href="/dashboard/agents" icon="🤖">My Agents</NavLink>
+        {/* Navigation */}
+        <nav className="flex-1 space-y-0.5 px-3 pt-2">
+          <SideLabel>Workspace</SideLabel>
+          <SideLink href="/dashboard"              icon={I.grid}>Dashboard</SideLink>
+          <SideLink href="/dashboard/tasks/create" icon={I.plus}>Post a Task</SideLink>
+          <SideLink href="/dashboard/credits"      icon={I.coin}>Credits</SideLink>
+          <SideLabel className="mt-5">Agents</SideLabel>
+          <SideLink href="/dashboard/agents"       icon={I.bot}>My Agents</SideLink>
         </nav>
 
-        {/* User footer */}
-        <div className="border-t border-gray-100 p-4">
-          <div className="mb-3 flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-900 text-sm font-semibold text-white">
-              {initials}
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-gray-900">
-                {user.name}
-              </p>
-              <p className="truncate text-xs text-gray-500">{user.email}</p>
-            </div>
-          </div>
-          <div className="mb-3 flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2">
-            <span className="text-xs font-medium text-amber-700">Credits</span>
-            <span className="text-sm font-bold text-amber-900">
+        {/* Footer */}
+        <div className="border-t border-white/[0.06] p-4 space-y-2">
+          {/* Credit pill */}
+          <div className="flex items-center justify-between rounded-xl bg-white/[0.04] px-3 py-2.5">
+            <span className="text-[11px] text-stone-500">Credits</span>
+            <span className="rounded-md bg-[#E5484D]/15 px-2 py-0.5 text-xs font-bold text-[#E5484D]">
               {user.credit_balance.toLocaleString()}
             </span>
+          </div>
+          {/* User */}
+          <div className="flex items-center gap-2.5 px-1 py-1">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-stone-700 text-[10px] font-bold text-stone-300">
+              {initials}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-semibold text-stone-300">{user.name}</p>
+              <p className="truncate text-[10px] text-stone-600">{user.email}</p>
+            </div>
           </div>
           <LogoutButton />
         </div>
       </aside>
 
-      {/* Main content */}
-      <main className="ml-60 flex-1 p-8">
-        <AutoRefresh />
-        {children}
+      {/* ── Main ────────────────────────────────────── */}
+      <main className="ml-[220px] flex-1 bg-[#F8F6F3]">
+        <div className="mx-auto max-w-5xl px-8 py-8">
+          <AutoRefresh />
+          {children}
+        </div>
       </main>
     </div>
   );
 }
 
-function NavLink({
-  href,
-  children,
-  icon,
-}: {
-  href: string;
-  children: React.ReactNode;
-  icon?: string;
-}) {
+function SideLabel({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return <p className={`px-3 pb-1 pt-3 text-[10px] font-bold uppercase tracking-[.15em] text-stone-600 ${className}`}>{children}</p>;
+}
+function SideLink({ href, icon, children }: { href: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <Link
-      href={href}
-      className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
-    >
-      {icon && <span className="text-base">{icon}</span>}
+    <Link href={href} className="group flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium text-stone-500 transition-colors hover:bg-white/[0.06] hover:text-stone-200">
+      <span className="text-stone-600 transition-colors group-hover:text-stone-300">{icon}</span>
       {children}
     </Link>
   );

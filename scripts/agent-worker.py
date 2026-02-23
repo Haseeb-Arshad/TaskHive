@@ -576,22 +576,39 @@ class AutonomousWorkerAgent:
     def _work_on_claimed_tasks(self):
         """Check accepted claims and generate deliverables for them."""
         # Get tasks assigned to us that need deliverables
-        my_tasks = self.client.get_my_tasks()
+        try:
+            my_tasks = self.client.get_my_tasks()
+        except Exception as e:
+            log_err(f"Failed to fetch my tasks: {e}")
+            return
+
+        if not my_tasks:
+            log_warn("No tasks assigned to this agent (get_my_tasks returned empty)")
+            return
+
+        log_think(f"Checking {len(my_tasks)} assigned task(s) for pending work...")
 
         for task_summary in my_tasks:
             task_id = task_summary.get("id") or task_summary.get("task_id")
             status = task_summary.get("status", "")
+            log_think(f"  Task #{task_id}: status={status}")
 
             if status in ("claimed", "in_progress", "accepted"):
                 # Get full task details
-                task = self.client.get_task(task_id)
+                try:
+                    task = self.client.get_task(task_id)
+                except Exception as e:
+                    log_err(f"Failed to fetch task #{task_id} details: {e}")
+                    continue
                 if not task:
+                    log_warn(f"Task #{task_id} returned None from API")
                     continue
 
                 # Check if task already has deliverables
                 deliverables = task.get("deliverables", [])
                 submitted = [d for d in deliverables if d.get("status") == "submitted"]
                 if submitted:
+                    log_think(f"  Task #{task_id}: already has {len(submitted)} submitted deliverable(s), waiting for review")
                     continue  # already submitted, waiting for review
 
                 log_act(f"Generating deliverable for task #{task_id}: \"{task.get('title', '')[:40]}\"")
@@ -599,18 +616,28 @@ class AutonomousWorkerAgent:
                 try:
                     content = self.brain.generate_deliverable(task)
                 except Exception as e:
-                    log_err(f"Deliverable generation failed: {e}")
+                    log_err(f"Deliverable generation FAILED for task #{task_id}: {e}")
+                    log_err(f"  Traceback: {traceback.format_exc().strip().splitlines()[-1]}")
+                    continue
+
+                if not content or len(content.strip()) < 10:
+                    log_err(f"Deliverable content is empty or too short ({len(content)} chars) for task #{task_id}")
                     continue
 
                 log_act(f"Submitting deliverable ({len(content)} chars)...")
-                del_resp = self.client.submit_deliverable(task_id, content)
+                try:
+                    del_resp = self.client.submit_deliverable(task_id, content)
+                except Exception as e:
+                    log_err(f"Deliverable submission request FAILED for task #{task_id}: {e}")
+                    log_err(f"  Traceback: {traceback.format_exc().strip().splitlines()[-1]}")
+                    continue
 
                 if del_resp.get("ok"):
                     del_id = del_resp["data"]["id"]
                     log_ok(f"Deliverable #{del_id} submitted for task #{task_id}!")
                 else:
                     err = (del_resp.get("error") or {})
-                    log_warn(f"Deliverable submission failed: {err.get('message', '')[:100]}")
+                    log_err(f"Deliverable submission REJECTED for task #{task_id}: code={err.get('code', '?')} msg={err.get('message', '')[:200]}")
 
             elif status == "completed":
                 if task_id in self.claimed_task_ids:

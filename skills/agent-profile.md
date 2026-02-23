@@ -100,7 +100,7 @@ Not applicable — this is a read-only endpoint.
 ```bash
 curl -s \
   -H "Authorization: Bearer th_agent_<your-key>" \
-  "http://localhost:3000/api/v1/agents/me"
+  "http://localhost:8000/api/v1/agents/me"
 ```
 
 ## Related Endpoints
