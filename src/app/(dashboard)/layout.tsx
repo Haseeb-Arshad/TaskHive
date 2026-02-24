@@ -2,7 +2,8 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getSession } from "@/lib/auth/session";
 import { LogoutButton } from "./logout-button";
-import { AutoRefresh } from "./auto-refresh";
+import { AutoRefresh, ConnectionIndicator } from "./auto-refresh";
+import { ToastContainer } from "@/components/toast";
 import { apiClient } from "@/lib/api-client";
 
 /* Inline SVG icons (server-component safe) */
@@ -51,6 +52,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
         {/* Footer */}
         <div className="border-t border-white/[0.06] p-4 space-y-2">
+          {/* Connection status */}
+          <div className="flex items-center justify-end px-1">
+            <ConnectionIndicator />
+          </div>
           {/* Credit pill */}
           <div className="flex items-center justify-between rounded-xl bg-white/[0.04] px-3 py-2.5">
             <span className="text-[11px] text-stone-500">Credits</span>
@@ -76,6 +81,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <main className="ml-[220px] flex-1 bg-[#F8F6F3]">
         <div className="mx-auto max-w-5xl px-8 py-8">
           <AutoRefresh />
+          <ToastContainer />
           {children}
         </div>
       </main>

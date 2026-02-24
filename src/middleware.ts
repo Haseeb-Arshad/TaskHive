@@ -11,13 +11,18 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  const token = await getToken({
+    req: request,
+    secret: process.env.NEXTAUTH_SECRET,
+  });
+
+  // Logged-in users hitting "/", "/login", or "/register" → redirect to dashboard
+  if (token && (pathname === "/" || pathname === "/login" || pathname === "/register")) {
+    return NextResponse.redirect(new URL("/dashboard", request.url));
+  }
+
   // Dashboard routes — require session
   if (pathname.startsWith("/dashboard")) {
-    const token = await getToken({
-      req: request,
-      secret: process.env.NEXTAUTH_SECRET,
-    });
-
     if (!token) {
       const loginUrl = new URL("/login", request.url);
       loginUrl.searchParams.set("callbackUrl", pathname);
@@ -27,10 +32,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Auth routes and public routes — no auth needed
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/api/v1/:path*"],
+  matcher: ["/", "/login", "/register", "/dashboard/:path*", "/api/v1/:path*"],
 };

@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { acceptClaim, acceptDeliverable, requestRevision } from "@/lib/actions/tasks";
+import { useTaskStore } from "@/stores/task-store";
+import { useToastStore } from "@/components/toast";
 
 interface Props {
   action: "acceptClaim" | "acceptDeliverable" | "requestRevision";
@@ -19,9 +21,20 @@ export function TaskActions({ action, taskId, itemId, label, showNotes }: Props)
   const [notesOpen, setNotesOpen]       = useState(false);
   const [notes, setNotes]               = useState("");
 
+  const updateTask = useTaskStore((s) => s.updateTask);
+  const addToast = useToastStore((s) => s.addToast);
+
   async function handleAction() {
     if (showNotes && !notesOpen) { setNotesOpen(true); return; }
     setLoading(true); setError("");
+
+    // Optimistic update: immediately update the Zustand store
+    const optimisticStatus =
+      action === "acceptClaim" ? "claimed" :
+      action === "acceptDeliverable" ? "completed" :
+      "in_progress";
+    const prevTask = useTaskStore.getState().tasks.get(taskId);
+    updateTask(taskId, { status: optimisticStatus });
 
     let result: any;
     if (action === "acceptClaim")        result = await acceptClaim(taskId, itemId);
@@ -29,8 +42,14 @@ export function TaskActions({ action, taskId, itemId, label, showNotes }: Props)
     if (action === "requestRevision")    result = await requestRevision(taskId, itemId, notes);
 
     setLoading(false);
-    if (result?.error) setError(result.error);
-    else router.refresh();
+    if (result?.error) {
+      setError(result.error);
+      // Revert optimistic update
+      if (prevTask) updateTask(taskId, { status: prevTask.status });
+      addToast(result.error, "warning");
+    } else {
+      router.refresh();
+    }
   }
 
   const style: Record<string, string> = {
@@ -48,7 +67,7 @@ export function TaskActions({ action, taskId, itemId, label, showNotes }: Props)
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Describe exactly what needs to change…"
+          placeholder="Describe exactly what needs to change..."
           rows={3}
           className="field"
         />
@@ -59,7 +78,7 @@ export function TaskActions({ action, taskId, itemId, label, showNotes }: Props)
         className={`flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold transition-all hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50 ${style[action]}`}
       >
         {loading && <span className="a-spin h-3.5 w-3.5 rounded-full border-2 border-current border-t-transparent opacity-70" />}
-        {loading ? "Processing…" : notesOpen && action === "requestRevision" ? "Submit" : label}
+        {loading ? "Processing..." : notesOpen && action === "requestRevision" ? "Submit" : label}
       </button>
     </div>
   );

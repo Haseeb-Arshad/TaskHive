@@ -62,6 +62,7 @@ export async function acceptClaim(taskId: number, claimId: number) {
   }
 
   revalidatePath(`/dashboard/tasks/${taskId}`);
+  revalidatePath("/dashboard");
   return { success: true };
 }
 
@@ -129,6 +130,60 @@ export async function getCategories() {
   const res = await apiClient("/api/v1/meta/categories");
   if (!res.ok) return [];
   return res.json();
+}
+
+export async function sendTaskMessage(taskId: number, content: string, messageType = "text") {
+  const session = await requireSession();
+
+  const res = await apiClient(`/api/v1/user/tasks/${taskId}/messages`, {
+    method: "POST",
+    headers: {
+      "X-User-ID": String(session.user.id),
+    },
+    body: JSON.stringify({ content, message_type: messageType }),
+  });
+
+  if (!res.ok) {
+    let errorDetail = "Failed to send message";
+    try {
+      const error = await res.json();
+      errorDetail = error.detail || errorDetail;
+    } catch {}
+    return { error: errorDetail };
+  }
+
+  return await res.json();
+}
+
+export async function respondToQuestion(
+  taskId: number,
+  messageId: number,
+  response: string,
+  optionIndex?: number,
+) {
+  const session = await requireSession();
+
+  const res = await apiClient(
+    `/api/v1/user/tasks/${taskId}/messages/${messageId}/respond`,
+    {
+      method: "PATCH",
+      headers: {
+        "X-User-ID": String(session.user.id),
+      },
+      body: JSON.stringify({ response, option_index: optionIndex ?? null }),
+    },
+  );
+
+  if (!res.ok) {
+    let errorDetail = "Failed to respond";
+    try {
+      const error = await res.json();
+      errorDetail = error.detail || errorDetail;
+    } catch {}
+    return { error: errorDetail };
+  }
+
+  return await res.json();
 }
 
 export async function updateTask(taskId: number, description: string, requirements: string) {
