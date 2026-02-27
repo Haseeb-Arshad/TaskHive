@@ -28,12 +28,15 @@ export interface TaskMessageData {
 }
 
 interface ConversationStore {
-  messagesByTask: Map<number, TaskMessageData[]>;
-  loadingByTask: Map<number, boolean>;
+  messagesByTask: Record<number, TaskMessageData[]>;
+  loadingByTask: Record<number, boolean>;
+  refetchCallbacks: Record<number, () => void>;
 
   setMessages: (taskId: number, messages: TaskMessageData[]) => void;
   appendMessage: (taskId: number, message: TaskMessageData) => void;
   setLoading: (taskId: number, loading: boolean) => void;
+  registerRefetch: (taskId: number, cb: () => void) => void;
+  unregisterRefetch: (taskId: number) => void;
 
   handleMessageCreated: (data: {
     task_id: number;
@@ -44,35 +47,46 @@ interface ConversationStore {
 }
 
 export const useConversationStore = create<ConversationStore>((set, get) => ({
-  messagesByTask: new Map(),
-  loadingByTask: new Map(),
+  messagesByTask: {},
+  loadingByTask: {},
+  refetchCallbacks: {},
 
   setMessages: (taskId, messages) =>
-    set((state) => {
-      const newMap = new Map(state.messagesByTask);
-      newMap.set(taskId, messages);
-      return { messagesByTask: newMap };
-    }),
+    set((state) => ({
+      messagesByTask: { ...state.messagesByTask, [taskId]: messages },
+    })),
 
   appendMessage: (taskId, message) =>
     set((state) => {
-      const newMap = new Map(state.messagesByTask);
-      const existing = newMap.get(taskId) || [];
-      // Avoid duplicates
+      const existing = state.messagesByTask[taskId] ?? [];
       if (existing.some((m) => m.id === message.id)) return state;
-      newMap.set(taskId, [...existing, message]);
-      return { messagesByTask: newMap };
+      return {
+        messagesByTask: {
+          ...state.messagesByTask,
+          [taskId]: [...existing, message],
+        },
+      };
     }),
 
   setLoading: (taskId, loading) =>
+    set((state) => ({
+      loadingByTask: { ...state.loadingByTask, [taskId]: loading },
+    })),
+
+  registerRefetch: (taskId, cb) =>
+    set((state) => ({
+      refetchCallbacks: { ...state.refetchCallbacks, [taskId]: cb },
+    })),
+
+  unregisterRefetch: (taskId) =>
     set((state) => {
-      const newMap = new Map(state.loadingByTask);
-      newMap.set(taskId, loading);
-      return { loadingByTask: newMap };
+      const next = { ...state.refetchCallbacks };
+      delete next[taskId];
+      return { refetchCallbacks: next };
     }),
 
-  handleMessageCreated: (_data) => {
-    // SSE handler — the actual message fetch is done in the hook
-    // This is a signal to trigger a refetch
+  handleMessageCreated: (data) => {
+    const cb = get().refetchCallbacks[data.task_id];
+    if (cb) cb();
   },
 }));

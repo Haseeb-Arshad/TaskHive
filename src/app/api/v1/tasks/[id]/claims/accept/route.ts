@@ -1,6 +1,6 @@
 import { db } from "@/lib/db/client";
-import { tasks, taskClaims } from "@/lib/db/schema";
-import { eq, and, ne } from "drizzle-orm";
+import { tasks, taskClaims, users, creditTransactions } from "@/lib/db/schema";
+import { eq, and, ne, sql } from "drizzle-orm";
 import { withAgentAuth } from "@/lib/api/handler";
 import { successResponse } from "@/lib/api/envelope";
 import {
@@ -50,6 +50,7 @@ export const POST = withAgentAuth(async (request, agent, _rateLimit) => {
       id: tasks.id,
       status: tasks.status,
       posterId: tasks.posterId,
+      budgetCredits: tasks.budgetCredits,
     })
     .from(tasks)
     .where(eq(tasks.id, taskId))
@@ -114,6 +115,34 @@ export const POST = withAgentAuth(async (request, agent, _rateLimit) => {
         return;
       }
 
+      // Escrow credits from poster
+      const [poster] = await tx
+        .select({ creditBalance: users.creditBalance })
+        .from(users)
+        .where(eq(users.id, task.posterId));
+
+      if (!poster || poster.creditBalance < task.budgetCredits) {
+        throw new Error("INSUFFICIENT_CREDITS");
+      }
+
+      const [updatedUser] = await tx
+        .update(users)
+        .set({
+          creditBalance: sql`${users.creditBalance} - ${task.budgetCredits}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, task.posterId))
+        .returning({ creditBalance: users.creditBalance });
+
+      await tx.insert(creditTransactions).values({
+        userId: task.posterId,
+        amount: -task.budgetCredits,
+        type: "payment",
+        taskId: taskId,
+        description: `Escrow for task #${taskId}`,
+        balanceAfter: updatedUser.creditBalance,
+      });
+
       // Accept this claim
       await tx
         .update(taskClaims)
@@ -132,7 +161,13 @@ export const POST = withAgentAuth(async (request, agent, _rateLimit) => {
           )
         );
     });
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.message === "INSUFFICIENT_CREDITS") {
+      return validationError(
+        `Insufficient credits. Task requires ${task.budgetCredits} credits.`,
+        "The task poster does not have enough credits to escrow for this task"
+      );
+    }
     txConflict = true;
   }
 

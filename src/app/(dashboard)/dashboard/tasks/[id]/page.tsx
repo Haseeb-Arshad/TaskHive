@@ -15,6 +15,9 @@ import {
 import { AgentActivityTab } from "./agent-activity-tab";
 import { ConversationWrapper } from "./conversation-wrapper";
 import { ClaimsSection } from "./claims-section";
+import { EvaluationCard } from "./evaluation-card";
+import { ClearUnseenClaims } from "./clear-unseen-claims";
+import { DeliverableRenderer } from "./deliverable-renderer";
 
 /* ── Status maps ──────────────────────────────────────── */
 const STATUS_BADGE: Record<string, string> = {
@@ -72,23 +75,15 @@ export default async function TaskDetailPage({
 
   const claims       = task.claims || [];
   const deliverables = task.deliverables || [];
+  const agentRemarks = task.agent_remarks || [];
   const acceptedClaim = claims.find((c: any) => c.status === "accepted");
 
-  /* Default to Activity tab when agent is working */
-  const isAgentWorking = ["claimed", "in_progress"].includes(task.status);
-  const defaultTab = isAgentWorking ? "activity" : "details";
-
-  /* Build tab config */
-  const tabs = [
-    { key: "details" as const,       label: "Details",       icon: <DetailsIcon /> },
-    { key: "activity" as const,      label: "Activity",      icon: <ActivityIcon />,      pulse: isAgentWorking },
-    { key: "claims" as const,        label: "Claims",        icon: <ClaimsIcon />,        count: claims.length },
-    { key: "deliverables" as const,  label: "Deliverables",  icon: <DeliverablesIcon />,  count: deliverables.length },
-    { key: "conversation" as const,  label: "Chat",          icon: <ConversationIcon /> },
-  ];
+  /* Pre-claim = open with no accepted claim */
+  const isPreClaim = task.status === "open" && !acceptedClaim;
 
   return (
     <div className="space-y-6">
+      <ClearUnseenClaims taskId={taskId} />
       {/* Back */}
       <Link
         href="/dashboard"
@@ -126,20 +121,12 @@ export default async function TaskDetailPage({
           <Chip subtle>Posted {new Date(task.created_at).toLocaleDateString()}</Chip>
         </div>
 
-        {/* Accepted agent */}
+        {/* Accepted agent banner (only post-claim) */}
         {acceptedClaim && (
           <div className="mt-5 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 shrink-0"><polyline points="20 6 9 17 4 12"/></svg>
             Claimed by <strong>{acceptedClaim.agent_name}</strong> for{" "}
             <strong>{acceptedClaim.proposed_credits} credits</strong>
-          </div>
-        )}
-
-        {task.status === "open" && claims.length === 0 && (
-          <div className="mt-5 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700">
-            <span className="font-semibold">Waiting for agents.</span> Agents browse open
-            tasks via the API and submit claims. They&apos;ll appear below once they claim
-            this task.
           </div>
         )}
 
@@ -149,169 +136,427 @@ export default async function TaskDetailPage({
         </div>
       </div>
 
-      {/* ── Glassmorphism tabs ─────────────────────────── */}
-      <Suspense fallback={<div className="h-96 animate-pulse rounded-2xl bg-stone-100" />}>
-        <GlassTabs tabs={tabs} defaultTab={defaultTab}>
-          {{
-            /* ── Details tab ── */
-            details: (
-              <div className="px-6 py-5">
-                <div className="whitespace-pre-wrap text-sm leading-relaxed text-stone-700">
-                  {task.description}
-                </div>
-                {task.requirements && (
-                  <>
-                    <p className="mb-2 mt-6 text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">
-                      Acceptance Criteria
-                    </p>
-                    <div className="whitespace-pre-wrap text-sm leading-relaxed text-stone-700">
-                      {task.requirements}
-                    </div>
-                  </>
-                )}
+      {/* ── PHASE-BASED LAYOUT ─────────────────────────── */}
+      {isPreClaim ? (
+        <PreClaimLayout
+          task={task}
+          claims={claims}
+          agentRemarks={agentRemarks}
+          userId={session.user.id}
+        />
+      ) : (
+        <PostClaimLayout
+          task={task}
+          claims={claims}
+          deliverables={deliverables}
+          agentRemarks={agentRemarks}
+          userId={session.user.id}
+        />
+      )}
+    </div>
+  );
+}
 
-                {/* Review activity */}
-                {(task.activity || []).length > 0 && (
-                  <>
-                    <p className="mb-3 mt-8 text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">
-                      Review Activity
-                    </p>
-                    <div className="divide-y divide-stone-100 rounded-xl border border-stone-200">
-                      {task.activity.map((act: any) => (
-                        <div key={act.id} className="flex items-start gap-3 px-4 py-3">
-                          <div
-                            className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-                              act.review_result === "pass"
-                                ? "bg-emerald-500"
-                                : act.review_result === "fail"
-                                  ? "bg-red-500"
-                                  : "bg-amber-400"
-                            }`}
-                          />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-sm font-medium text-stone-800">
-                                {act.agent_name} — Attempt #{act.attempt_number}
-                              </p>
-                              <span className="whitespace-nowrap text-xs text-stone-400">
-                                {new Date(act.submitted_at).toLocaleTimeString()}
-                              </span>
-                            </div>
-                            <span
-                              className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                                act.review_result === "pass"
-                                  ? "bg-emerald-100 text-emerald-700"
-                                  : act.review_result === "fail"
-                                    ? "bg-red-100 text-red-700"
-                                    : "bg-amber-100 text-amber-700"
-                              }`}
-                            >
-                              {act.review_result}
-                            </span>
-                            {act.review_feedback && (
-                              <p className="mt-2 rounded-lg bg-stone-50 border border-stone-100 px-3 py-2 text-xs text-stone-600">
-                                {act.review_feedback}
-                              </p>
-                            )}
-                          </div>
+/* ══════════════════════════════════════════════════════════
+   PRE-CLAIM LAYOUT
+   Focus: Description, Requirements, Agent Feedback, Claims
+   No tabs — everything visible at once
+   ══════════════════════════════════════════════════════════ */
+function PreClaimLayout({
+  task,
+  claims,
+  agentRemarks,
+  userId,
+}: {
+  task: any;
+  claims: any[];
+  agentRemarks: any[];
+  userId: number;
+}) {
+  const hasClaims = claims.length > 0;
+
+  return (
+    <div className="space-y-6">
+      {/* Waiting banner */}
+      {claims.length === 0 && (
+        <div className="a-up rounded-2xl border border-sky-200 bg-gradient-to-r from-sky-50 to-blue-50 px-6 py-5">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-sky-100">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-6 w-6 text-sky-600">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 6v6l4 2" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-sky-900">Waiting for agents to discover your task</p>
+              <p className="mt-1 text-xs leading-relaxed text-sky-700/80">
+                Agents browse open tasks via the API and submit claims with their proposed approach.
+                You&apos;ll see their proposals here once they claim this task.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Two-column: Description | Claims (on desktop) */}
+      <div className={`grid gap-6 ${hasClaims ? "lg:grid-cols-5" : ""}`}>
+        {/* ── Left: Description + Requirements + Feedback ── */}
+        <div className={`space-y-6 ${hasClaims ? "lg:col-span-3" : ""}`}>
+          {/* Description card */}
+          <div className="a-up rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
+            <div className="mb-4 flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-stone-100">
+                <DetailsIcon />
+              </div>
+              <h2 className="text-sm font-semibold text-stone-900">Task Description</h2>
+            </div>
+            <div className="whitespace-pre-wrap text-sm leading-relaxed text-stone-700">
+              {task.description}
+            </div>
+
+            {task.requirements && (
+              <>
+                <div className="my-5 border-t border-stone-100" />
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="flex h-5 w-5 items-center justify-center rounded bg-emerald-100">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-3 w-3 text-emerald-600"><polyline points="20 6 9 17 4 12"/></svg>
+                  </div>
+                  <p className="text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">
+                    Acceptance Criteria
+                  </p>
+                </div>
+                <div className="whitespace-pre-wrap text-sm leading-relaxed text-stone-700">
+                  {task.requirements}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Agent feedback (remarks) */}
+          {agentRemarks.length > 0 && (
+            <div className="a-up rounded-2xl border border-amber-200/60 bg-white p-6 shadow-sm">
+              <div className="mb-4 flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-100">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4 text-amber-600">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </svg>
+                </div>
+                <h2 className="text-sm font-semibold text-stone-900">Agent Feedback</h2>
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                  {agentRemarks.length}
+                </span>
+              </div>
+              <div className="space-y-3">
+                {agentRemarks.map((r: any, i: number) =>
+                  r.evaluation ? (
+                    <EvaluationCard key={i} remark={r} taskId={task.id} />
+                  ) : (
+                    <div
+                      key={i}
+                      className="rounded-xl border border-amber-200/60 bg-amber-50/50 px-4 py-3"
+                    >
+                      <div className="mb-1.5 flex items-center gap-2">
+                        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-200 text-[10px] font-bold text-amber-800">
+                          {(r.agent_name || "A").charAt(0).toUpperCase()}
                         </div>
-                      ))}
+                        <span className="text-xs font-semibold text-amber-900">
+                          {r.agent_name || "Agent"}
+                        </span>
+                        <span className="ml-auto text-[10px] text-amber-600/60">
+                          {r.timestamp ? new Date(r.timestamp).toLocaleString() : ""}
+                        </span>
+                      </div>
+                      <p className="text-sm leading-relaxed text-amber-900">
+                        {r.remark}
+                      </p>
                     </div>
-                  </>
+                  )
                 )}
               </div>
-            ),
+            </div>
+          )}
 
-            /* ── Activity tab ── */
-            activity: (
-              <AgentActivityTab taskId={task.id} taskStatus={task.status} />
-            ),
+          {/* Chat — simplified for pre-claim */}
+          <div className="a-up overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
+            <div className="flex items-center gap-2 border-b border-stone-100 px-6 py-3">
+              <ConversationIcon />
+              <h2 className="text-sm font-semibold text-stone-900">Messages</h2>
+            </div>
+            <Suspense fallback={<div className="h-40 animate-pulse bg-stone-50" />}>
+              <ConversationWrapper
+                taskId={task.id}
+                userId={userId}
+                taskStatus={task.status}
+                agentRemarks={agentRemarks}
+              />
+            </Suspense>
+          </div>
+        </div>
 
-            /* ── Claims tab ── */
-            claims: (
+        {/* ── Right: Claims sidebar ── */}
+        {hasClaims && (
+          <div className="lg:col-span-2">
+            <div className="a-up sticky top-6 rounded-2xl border border-stone-200 bg-white shadow-sm">
+              <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
+                <div className="flex items-center gap-2">
+                  <ClaimsIcon />
+                  <h2 className="text-sm font-semibold text-stone-900">Agent Claims</h2>
+                </div>
+                <span className="rounded-full bg-[#E5484D] px-2 py-0.5 text-[10px] font-bold text-white">
+                  {claims.length}
+                </span>
+              </div>
               <ClaimsSection
                 claims={claims}
                 taskId={task.id}
                 taskStatus={task.status}
                 taskBudget={task.budget_credits}
               />
-            ),
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
-            /* ── Deliverables tab ── */
-            deliverables: deliverables.length === 0 ? (
-              <EmptyState message="No deliverables yet">
-                The agent submits work via{" "}
-                <code className="rounded-md bg-stone-100 px-1.5 py-0.5 text-xs font-mono">
-                  POST /api/v1/tasks/{task.id}/deliverables
-                </code>
-              </EmptyState>
-            ) : (
-              <div className="divide-y divide-stone-100">
-                {deliverables.map((del: any) => (
-                  <div key={del.id}>
-                    <div className="flex items-center justify-between bg-stone-50/60 px-6 py-3 border-b border-stone-100">
-                      <div className="flex items-center gap-2.5">
-                        <span className="text-sm font-semibold text-stone-800">
-                          Revision #{del.revision_number}
-                        </span>
-                        <span className="text-sm text-stone-400">by {del.agent_name}</span>
-                        <span
-                          className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${
-                            DELIV_BADGE[del.status]
-                          }`}
-                        >
-                          {del.status.replace("_", " ")}
-                        </span>
-                      </div>
-                      <span className="text-xs text-stone-400">
-                        {new Date(del.submitted_at).toLocaleString()}
+/* ══════════════════════════════════════════════════════════
+   POST-CLAIM LAYOUT
+   Focus: Activity, Chat, Deliverables — full tab experience
+   ══════════════════════════════════════════════════════════ */
+function PostClaimLayout({
+  task,
+  claims,
+  deliverables,
+  agentRemarks,
+  userId,
+}: {
+  task: any;
+  claims: any[];
+  deliverables: any[];
+  agentRemarks: any[];
+  userId: number;
+}) {
+  const isAgentWorking = ["claimed", "in_progress"].includes(task.status);
+  const isReview = task.status === "delivered";
+  const isDone = task.status === "completed" || task.status === "cancelled";
+
+  /* Smart default tab */
+  const defaultTab = isAgentWorking
+    ? "activity"
+    : isReview
+      ? "deliverables"
+      : isDone
+        ? "details"
+        : "conversation";
+
+  const tabs = [
+    { key: "activity" as const,      label: "Activity",      icon: <ActivityIcon />,      pulse: isAgentWorking },
+    { key: "conversation" as const,  label: "Chat",          icon: <ConversationIcon /> },
+    { key: "deliverables" as const,  label: "Deliverables",  icon: <DeliverablesIcon />,  count: deliverables.length },
+    { key: "details" as const,       label: "Details",       icon: <DetailsIcon /> },
+    { key: "claims" as const,        label: "Claims",        icon: <ClaimsIcon />,        count: claims.length },
+  ];
+
+  return (
+    <Suspense fallback={<div className="h-96 animate-pulse rounded-2xl bg-stone-100" />}>
+      <GlassTabs tabs={tabs} defaultTab={defaultTab}>
+        {{
+          /* ── Activity tab ── */
+          activity: (
+            <AgentActivityTab taskId={task.id} taskStatus={task.status} />
+          ),
+
+          /* ── Conversation tab ── */
+          conversation: (
+            <ConversationWrapper
+              taskId={task.id}
+              userId={userId}
+              taskStatus={task.status}
+              agentRemarks={agentRemarks}
+            />
+          ),
+
+          /* ── Deliverables tab ── */
+          deliverables: deliverables.length === 0 ? (
+            <EmptyState message="No deliverables yet">
+              The agent submits work via{" "}
+              <code className="rounded-md bg-stone-100 px-1.5 py-0.5 text-xs font-mono">
+                POST /api/v1/tasks/{task.id}/deliverables
+              </code>
+            </EmptyState>
+          ) : (
+            <div className="divide-y divide-stone-100">
+              {deliverables.map((del: any) => (
+                <div key={del.id}>
+                  <div className="flex items-center justify-between bg-stone-50/60 px-6 py-3 border-b border-stone-100">
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-sm font-semibold text-stone-800">
+                        Revision #{del.revision_number}
+                      </span>
+                      <span className="text-sm text-stone-400">by {del.agent_name}</span>
+                      <span
+                        className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${
+                          DELIV_BADGE[del.status]
+                        }`}
+                      >
+                        {del.status.replace("_", " ")}
                       </span>
                     </div>
-                    <div className="max-h-96 overflow-y-auto px-6 py-5">
-                      <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-stone-700">
-                        {del.content}
-                      </pre>
+                    <span className="text-xs text-stone-400">
+                      {new Date(del.submitted_at).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="max-h-[32rem] overflow-y-auto">
+                    <DeliverableRenderer content={del.content} />
+                  </div>
+                  {del.revision_notes && (
+                    <div className="border-t border-amber-100 bg-amber-50/60 px-6 py-3 text-sm text-amber-800">
+                      <span className="font-semibold">Revision requested:</span>{" "}
+                      {del.revision_notes}
                     </div>
-                    {del.revision_notes && (
-                      <div className="border-t border-amber-100 bg-amber-50/60 px-6 py-3 text-sm text-amber-800">
-                        <span className="font-semibold">Revision requested:</span>{" "}
-                        {del.revision_notes}
-                      </div>
-                    )}
-                    {del.status === "submitted" && task.status === "delivered" && (
-                      <div className="flex gap-2.5 border-t border-stone-100 px-6 py-4">
-                        <TaskActions
-                          action="acceptDeliverable"
-                          taskId={task.id}
-                          itemId={del.id}
-                          label="Accept deliverable"
-                        />
-                        <TaskActions
-                          action="requestRevision"
-                          taskId={task.id}
-                          itemId={del.id}
-                          label="Request revision"
-                          showNotes
-                        />
-                      </div>
+                  )}
+                  {del.status === "submitted" && task.status === "delivered" && (
+                    <div className="flex gap-2.5 border-t border-stone-100 px-6 py-4">
+                      <TaskActions
+                        action="acceptDeliverable"
+                        taskId={task.id}
+                        itemId={del.id}
+                        label="Accept deliverable"
+                      />
+                      <TaskActions
+                        action="requestRevision"
+                        taskId={task.id}
+                        itemId={del.id}
+                        label="Request revision"
+                        showNotes
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ),
+
+          /* ── Details tab ── */
+          details: (
+            <div className="px-6 py-5">
+              <div className="whitespace-pre-wrap text-sm leading-relaxed text-stone-700">
+                {task.description}
+              </div>
+              {task.requirements && (
+                <>
+                  <p className="mb-2 mt-6 text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">
+                    Acceptance Criteria
+                  </p>
+                  <div className="whitespace-pre-wrap text-sm leading-relaxed text-stone-700">
+                    {task.requirements}
+                  </div>
+                </>
+              )}
+
+              {/* Agent Feedback / Remarks */}
+              {agentRemarks.length > 0 && (
+                <>
+                  <p className="mb-3 mt-8 text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">
+                    Agent Feedback
+                  </p>
+                  <div className="space-y-3">
+                    {agentRemarks.map((r: any, i: number) =>
+                      r.evaluation ? (
+                        <EvaluationCard key={i} remark={r} taskId={task.id} />
+                      ) : (
+                        <div
+                          key={i}
+                          className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3"
+                        >
+                          <div className="mb-1.5 flex items-center gap-2">
+                            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-200 text-[10px] font-bold text-amber-800">
+                              {(r.agent_name || "A").charAt(0).toUpperCase()}
+                            </div>
+                            <span className="text-xs font-semibold text-amber-900">
+                              {r.agent_name || "Agent"}
+                            </span>
+                            <span className="ml-auto text-[10px] text-amber-600/60">
+                              {r.timestamp
+                                ? new Date(r.timestamp).toLocaleString()
+                                : ""}
+                            </span>
+                          </div>
+                          <p className="text-sm leading-relaxed text-amber-900">
+                            {r.remark}
+                          </p>
+                        </div>
+                      )
                     )}
                   </div>
-                ))}
-              </div>
-            ),
+                </>
+              )}
 
-            /* ── Conversation tab ── */
-            conversation: (
-              <ConversationWrapper
-                taskId={task.id}
-                userId={session.user.id}
-                taskStatus={task.status}
-              />
-            ),
-          }}
-        </GlassTabs>
-      </Suspense>
-    </div>
+              {/* Review activity */}
+              {(task.activity || []).length > 0 && (
+                <>
+                  <p className="mb-3 mt-8 text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">
+                    Review Activity
+                  </p>
+                  <div className="divide-y divide-stone-100 rounded-xl border border-stone-200">
+                    {task.activity.map((act: any) => (
+                      <div key={act.id} className="flex items-start gap-3 px-4 py-3">
+                        <div
+                          className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
+                            act.review_result === "pass"
+                              ? "bg-emerald-500"
+                              : act.review_result === "fail"
+                                ? "bg-red-500"
+                                : "bg-amber-400"
+                          }`}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-medium text-stone-800">
+                              {act.agent_name} — Attempt #{act.attempt_number}
+                            </p>
+                            <span className="whitespace-nowrap text-xs text-stone-400">
+                              {new Date(act.submitted_at).toLocaleTimeString()}
+                            </span>
+                          </div>
+                          <span
+                            className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                              act.review_result === "pass"
+                                ? "bg-emerald-100 text-emerald-700"
+                                : act.review_result === "fail"
+                                  ? "bg-red-100 text-red-700"
+                                  : "bg-amber-100 text-amber-700"
+                            }`}
+                          >
+                            {act.review_result}
+                          </span>
+                          {act.review_feedback && (
+                            <p className="mt-2 rounded-lg bg-stone-50 border border-stone-100 px-3 py-2 text-xs text-stone-600">
+                              {act.review_feedback}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          ),
+
+          /* ── Claims tab ── */
+          claims: (
+            <ClaimsSection
+              claims={claims}
+              taskId={task.id}
+              taskStatus={task.status}
+              taskBudget={task.budget_credits}
+            />
+          ),
+        }}
+      </GlassTabs>
+    </Suspense>
   );
 }
 

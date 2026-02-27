@@ -284,7 +284,21 @@ def trinity_enhance_prompt(prompt: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TaskHiveClient:
-    """API client for TaskHive."""
+    """API client for TaskHive with automatic retry and connection recovery."""
+
+    MAX_RETRIES = 3
+    RETRY_DELAYS = [1, 3, 5]  # seconds between retries
+    TRANSIENT_ERRORS = (
+        httpx.ConnectError,
+        httpx.ReadError,
+        httpx.WriteError,
+        httpx.PoolTimeout,
+        httpx.ConnectTimeout,
+        httpx.ReadTimeout,
+        ConnectionResetError,
+        ConnectionAbortedError,
+        OSError,
+    )
 
     def __init__(self, base_url: str, api_key: str = None):
         self.base_url = base_url.rstrip("/")
@@ -299,13 +313,79 @@ class TaskHiveClient:
             h["Authorization"] = f"Bearer {self.api_key}"
         return h
 
+    def _reconnect(self):
+        """Recreate HTTP client to recover from broken connections."""
+        try:
+            self.http.close()
+        except Exception:
+            pass
+        self.http = httpx.Client(base_url=self.base_url, timeout=60.0)
+
+    def _request_with_retry(self, method: str, path: str, **kwargs) -> dict:
+        """Execute an HTTP request with automatic retry on transient failures."""
+        import time as _time
+
+        last_error = None
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                if method == "GET":
+                    resp = self.http.get(path, headers=self._headers(), **kwargs)
+                else:
+                    resp = self.http.post(path, headers=self._headers(), **kwargs)
+
+                # Check for empty or non-JSON responses
+                if resp.status_code >= 500:
+                    raise httpx.HTTPStatusError(
+                        f"Server error {resp.status_code}",
+                        request=resp.request,
+                        response=resp,
+                    )
+
+                content_type = resp.headers.get("content-type", "")
+                if "application/json" not in content_type:
+                    body = resp.text[:200]
+                    if not body.strip():
+                        return {"ok": False, "error": {"code": "empty_response", "message": f"HTTP {resp.status_code}: empty response"}}
+                    # Try parsing anyway — some servers omit content-type header
+                    try:
+                        return resp.json()
+                    except Exception:
+                        return {"ok": False, "error": {"code": "non_json", "message": f"HTTP {resp.status_code}: {body}"}}
+
+                return resp.json()
+
+            except self.TRANSIENT_ERRORS as e:
+                last_error = e
+                if attempt < self.MAX_RETRIES - 1:
+                    delay = self.RETRY_DELAYS[min(attempt, len(self.RETRY_DELAYS) - 1)]
+                    _time.sleep(delay)
+                    self._reconnect()  # Fresh connection for next attempt
+                continue
+
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                if attempt < self.MAX_RETRIES - 1 and e.response.status_code >= 500:
+                    delay = self.RETRY_DELAYS[min(attempt, len(self.RETRY_DELAYS) - 1)]
+                    _time.sleep(delay)
+                    continue
+                # 4xx errors: don't retry
+                try:
+                    return e.response.json()
+                except Exception:
+                    return {"ok": False, "error": {"code": f"http_{e.response.status_code}", "message": str(e)}}
+
+            except Exception as e:
+                last_error = e
+                break
+
+        # All retries exhausted
+        raise last_error or RuntimeError(f"Request to {path} failed after {self.MAX_RETRIES} attempts")
+
     def get(self, path: str, params: dict = None) -> dict:
-        resp = self.http.get(path, headers=self._headers(), params=params)
-        return resp.json()
+        return self._request_with_retry("GET", path, params=params)
 
     def post(self, path: str, json_data: dict = None) -> dict:
-        resp = self.http.post(path, headers=self._headers(), json=json_data)
-        return resp.json()
+        return self._request_with_retry("POST", path, json=json_data)
 
     def browse_tasks(self, status: str = "open", limit: int = 20) -> list[dict]:
         """Browse available tasks."""
@@ -366,9 +446,21 @@ class TaskHiveClient:
                 return profile
         return None
 
-    def post_remark(self, task_id: int, remark: str) -> dict:
-        """Post a feedback remark on a task."""
-        return self.post(f"/api/v1/tasks/{task_id}/remarks", {"remark": remark})
+    def get_task_messages(self, task_id: int) -> list[dict]:
+        """Fetch conversation messages for a task (poster + agent messages)."""
+        resp = self.get(f"/api/v1/tasks/{task_id}/messages")
+        if resp.get("ok"):
+            data = resp.get("data", [])
+            return data if isinstance(data, list) else []
+        return []
+
+    def post_remark(self, task_id: int, remark) -> dict:
+        """Post a feedback remark on a task. Accepts a string or a dict with 'remark' + optional 'evaluation'."""
+        if isinstance(remark, str):
+            payload = {"remark": remark}
+        else:
+            payload = remark
+        return self.post(f"/api/v1/tasks/{task_id}/remarks", payload)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

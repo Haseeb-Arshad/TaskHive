@@ -61,7 +61,7 @@ ANTHROPIC_KEY = os.environ.get("ANTHROPIC_KEY", "") or os.environ.get("ANTHROPIC
 DEFAULT_CAPABILITIES = ["python", "javascript", "typescript", "sql", "api-design", "data-processing"]
 DEFAULT_INTERVAL = 20  # seconds between polls
 MAX_CONCURRENT_TASKS = 1  # tasks to work on at once
-MAX_REMARKS_PER_TASK = 2  # max feedback remarks per agent per task
+MAX_REMARKS_PER_TASK = 4  # max feedback remarks per agent per task (initial + follow-ups)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # LOGGING
@@ -274,40 +274,188 @@ class AgentBrain:
     def __init__(self, capabilities: list[str]):
         self.capabilities = capabilities
 
-    def evaluate_task(self, task: dict) -> dict:
+    def evaluate_task(self, task: dict, conv_messages: list[dict] | None = None) -> dict:
         """THINK: Should I claim this task? How much to bid?"""
         remarks = task.get("agent_remarks", [])
         remarks_history = ""
+        has_answered_questions = False
         if remarks:
             remarks_history = "\nPrevious agent feedback on this task:\n"
             for r in remarks:
                 remarks_history += f"- {r.get('agent_name')}: {r.get('remark')}\n"
+                eval_data = r.get("evaluation")
+                if eval_data:
+                    for q in eval_data.get("questions", []):
+                        if q.get("answer"):
+                            has_answered_questions = True
+                            remarks_history += f"  Q: {q['text']} -> Poster answered: {q['answer']}\n"
+                        else:
+                            remarks_history += f"  Q: {q['text']} -> (not answered yet)\n"
 
-        return llm_json(
-            "You are an AI freelancer agent on TaskHive. You evaluate tasks to decide which ones to claim. "
-            f"Your capabilities: {', '.join(self.capabilities)}. "
-            "Be selective but pragmatic — claim tasks you can deliver quality work for. "
-            "If a task has a clear title, reasonable description, and any stated requirements, that is usually ENOUGH to claim. "
-            "Only flag a task as vague if the description is truly insufficient to start work. "
-            "Do NOT demand excessive specifics like exact deadlines, framework choices, or line-item acceptance criteria — "
-            "those are implementation details you can decide yourself. "
-            "If a task IS genuinely vague (e.g., one-sentence description with no context), suggest improvements.",
+        # Include poster's free-form text messages in context
+        if conv_messages:
+            poster_msgs = [
+                m for m in conv_messages
+                if m.get("sender_type") == "poster" and m.get("message_type") == "text"
+            ]
+            if poster_msgs:
+                has_answered_questions = True  # treat poster messages as clarification
+                remarks_history += "\nPoster messages in chat:\n"
+                for m in poster_msgs[-5:]:  # last 5 messages
+                    remarks_history += f"  Poster: {m.get('content', '')}\n"
+
+        # Build the system prompt — different for follow-up vs initial
+        if has_answered_questions:
+            system_prompt = (
+                "You are an AI freelancer agent on TaskHive. The task poster has answered your evaluation questions. "
+                f"Your capabilities: {', '.join(self.capabilities)}. "
+                "Review their answers carefully.\n\n"
+                "FOLLOW-UP RULES:\n"
+                "- Set feedback to 1-2 sentences only: acknowledge what you now know and whether you're ready to start\n"
+                "- If you have enough info, set should_claim=true, confidence=high, keep feedback brief ('Got it — ready to start.')\n"
+                "- If you still need 1-2 clarifications, include focused follow-up questions\n"
+                "- NEVER repeat questions already answered\n"
+                "- NO long introductions, no chatty preambles, no enthusiasm filler\n\n"
+                "QUESTION TYPES (use sparingly for follow-ups, only if needed):\n"
+                "  'multiple_choice' — concrete decisions with 3-4 options\n"
+                "  'yes_no' — quick feature toggles\n"
+                "  'text_input' — open-ended details (include placeholder)\n"
+                "  'scale' — priorities on a spectrum (include scale_min, scale_max, scale_labels)\n"
+            )
+        else:
+            system_prompt = (
+                "You are an AI freelancer agent on TaskHive evaluating tasks to decide which to claim. "
+                f"Your capabilities: {', '.join(self.capabilities)}. "
+                "Be selective but pragmatic — claim tasks you can deliver quality work for. "
+                "If a task has a clear title, reasonable description, and any stated requirements, that is usually ENOUGH to claim. "
+                "Do NOT reject tasks for being 'too simple' or 'too small'. "
+                "Only flag a task as vague if the description is truly insufficient to start work.\n\n"
+                "FEEDBACK FIELD RULES (CRITICAL):\n"
+                "- The 'feedback' field is shown to the poster BEFORE your questions appear in the UI\n"
+                "- Keep it to ONE sentence stating intent: e.g. 'I can build this — a few quick questions:'\n"
+                "- NO chatty greetings, NO 'Hey!', NO 'I took a look at', NO preambles\n"
+                "- NO restating the task title back to the poster\n\n"
+                "EVALUATION QUESTIONS — focus here. You have 4 question types:\n"
+                "  1. 'multiple_choice' — For concrete decisions (tech stack, feature priorities). "
+                "Include 3-4 specific options.\n"
+                "  2. 'yes_no' — For quick feature toggles (Need auth? Want dark mode?).\n"
+                "  3. 'text_input' — For open-ended details (include a helpful placeholder).\n"
+                "  4. 'scale' — For priorities on a spectrum (include scale_min, scale_max 1-5, scale_labels).\n\n"
+                "Use 3-5 questions total. Mix types. Be specific, never generic.\n"
+                "NEVER ask questions the description already answers."
+            )
+
+        result = llm_json(
+            system_prompt,
 
             f"Evaluate this task:\n"
             f"  Title: {task.get('title', 'N/A')}\n"
-            f"  Description: {(task.get('description') or 'N/A')[:500]}\n"
+            f"  Description: {(task.get('description') or 'N/A')[:800]}\n"
             f"  Budget: {task.get('budget_credits', 0)} credits\n"
-            f"  Requirements: {(task.get('requirements') or 'N/A')[:300]}\n"
+            f"  Requirements: {(task.get('requirements') or 'N/A')[:500]}\n"
             f"{remarks_history}\n"
             f"  Category: {task.get('category', {}).get('name', 'General') if isinstance(task.get('category'), dict) else 'General'}\n\n"
-            "Should I claim this? Respond with JSON:\n"
-            '{"should_claim": true/false, "confidence": "high/medium/low", '
-            '"proposed_credits": <number <= budget>, '
-            '"is_vague": true/false, '
-            '"feedback": "concise, friendly advice to the user on why this task is hard to claim or how to improve it", '
-            '"reason": "internal reason why this is a good/bad fit", '
-            '"approach": "brief plan if claiming"}'
+            "Respond with this JSON structure:\n"
+            '{\n'
+            '  "should_claim": true/false,\n'
+            '  "confidence": "high"/"medium"/"low",\n'
+            '  "proposed_credits": <number>,\n'
+            '  "is_vague": true/false,\n'
+            '  "evaluation": {\n'
+            '    "score": <1-10>,\n'
+            '    "strengths": ["strength1", "strength2"],\n'
+            '    "concerns": ["concern1"],\n'
+            '    "questions": [\n'
+            '      {"id": "q1", "text": "Do you need user accounts?", "type": "yes_no"},\n'
+            '      {"id": "q2", "text": "What vibe?", "type": "multiple_choice", "options": ["Minimal", "Bold", "Dark"]},\n'
+            '      {"id": "q3", "text": "Describe your homepage", "type": "text_input", "placeholder": "e.g. A grid of cards..."},\n'
+            '      {"id": "q4", "text": "How polished?", "type": "scale", "scale_min": 1, "scale_max": 5, "scale_labels": ["Prototype", "Production"]}\n'
+            '    ]\n'
+            '  },\n'
+            '  "feedback": "ONE sentence stating intent, e.g. \'Ready to build this — just need a few details:\' NO greetings, NO restating the task title",\n'
+            '  "reason": "internal reason",\n'
+            '  "approach": "step-by-step plan"\n'
+            '}'
         )
+
+        # Ensure evaluation exists — generate context-aware fallback if LLM omitted it
+        if not result.get("evaluation") or not isinstance(result.get("evaluation"), dict):
+            title = task.get("title", "this task")
+            desc = (task.get("description") or "")[:200]
+            budget = task.get("budget_credits", 0)
+
+            strengths = []
+            if title and title != "N/A":
+                strengths.append("Clear title that communicates the goal well")
+            if budget >= 50:
+                strengths.append(f"Reasonable budget of {budget} credits for this scope")
+            if desc and len(desc) > 50:
+                strengths.append("Solid starting description to work from")
+
+            concerns = []
+            reqs = task.get("requirements") or ""
+            if not reqs:
+                concerns.append("No acceptance criteria yet — a few quick answers below will fix that")
+            if len(desc) < 100:
+                concerns.append("A bit more detail would help nail the deliverable on the first try")
+
+            result["evaluation"] = {
+                "score": 7 if has_answered_questions else (6 if len(desc) > 80 else 4),
+                "strengths": (
+                    ["Poster provided great answers to clarify the project", "Clear direction for implementation"]
+                    if has_answered_questions
+                    else strengths or ["The core concept is clear and achievable"]
+                ),
+                "concerns": (
+                    []
+                    if has_answered_questions
+                    else concerns or ["A few quick clarifications would go a long way"]
+                ),
+                "questions": [] if has_answered_questions else [
+                    {"id": "q1", "text": "Do you need user accounts and login?", "type": "yes_no"},
+                    {"id": "q2", "text": "What vibe are you going for with the design?", "type": "multiple_choice",
+                     "options": ["Minimal & clean", "Bold & colorful", "Dark & sleek", "No preference"]},
+                    {"id": "q3", "text": "Describe what the main page should look like in your own words", "type": "text_input",
+                     "placeholder": "e.g. A list of items with a search bar, each showing a thumbnail..."},
+                    {"id": "q4", "text": "How polished should the final product be?", "type": "scale",
+                     "scale_min": 1, "scale_max": 5, "scale_labels": ["Quick prototype", "Production-ready"]},
+                ],
+            }
+
+        # Validate questions
+        eval_obj = result.get("evaluation", {})
+        if isinstance(eval_obj, dict) and "questions" in eval_obj:
+            valid_questions = []
+            for q in eval_obj.get("questions", []):
+                if not isinstance(q, dict) or not q.get("text"):
+                    continue
+                qtype = q.get("type", "multiple_choice")
+                if qtype == "multiple_choice" and len(q.get("options", [])) < 2:
+                    continue
+                if qtype not in ("multiple_choice", "yes_no", "text_input", "scale"):
+                    q["type"] = "text_input"
+                    q["placeholder"] = q.get("placeholder", "Type your answer...")
+                valid_questions.append(q)
+            eval_obj["questions"] = valid_questions
+
+        # Ensure feedback is engaging
+        feedback = result.get("feedback", "")
+        if not feedback or len(feedback) < 30:
+            title = task.get("title", "your project")
+            if has_answered_questions:
+                result["feedback"] = (
+                    f"Thanks for answering my questions about \"{title}\"! "
+                    f"Your responses gave me a much clearer picture of what you're after. "
+                    f"I'm putting together my approach and should be ready to get started."
+                )
+            else:
+                result["feedback"] = (
+                    f"Hey! I took a look at \"{title}\" and I'm interested. "
+                    f"I've got a few quick questions below that'll help me understand exactly what you're after "
+                    f"so I can hit the ground running. Should only take a minute!"
+                )
+
+        return result
 
     def generate_claim_message(self, task: dict, approach: str) -> str:
         """Generate a compelling claim message."""
@@ -450,10 +598,10 @@ class AutonomousWorkerAgent:
             if not task_id:
                 continue
 
-            # Skip tasks we've already claimed
-            if task_id in self.claimed_task_ids:
-                continue
-            
+            # Don't skip claimed tasks — we still need to check for feedback responses
+            # Just mark them so we don't try to claim again
+            is_claimed = task_id in self.claimed_task_ids
+
             # Check browse-level updated_at to see if it's worth fetching details
             current_updated_at = iso_to_datetime(task_summary.get("updated_at"))
             last_seen_at = self.attempted_tasks.get(task_id)
@@ -497,40 +645,79 @@ class AutonomousWorkerAgent:
 
             log_think(f"Evaluating: \"{detail.get('title', '')[:50]}\" (budget={detail.get('budget_credits')})")
 
+            # Fetch conversation messages so the LLM sees poster replies
             try:
-                evaluation = self.brain.evaluate_task(detail)
+                conv_messages = self.client.get_task_messages(task_id) or []
+            except Exception:
+                conv_messages = []
+
+            try:
+                evaluation = self.brain.evaluate_task(detail, conv_messages)
             except Exception as e:
                 log_warn(f"LLM evaluation failed: {e}")
                 log_warn(traceback.format_exc().strip().splitlines()[-1])
                 continue
 
-            if evaluation.get("should_claim") and evaluation.get("confidence") in ("high", "medium"):
+            # Always post structured evaluation feedback (for ALL tasks, not just skipped)
+            feedback = evaluation.get("feedback", "").strip().strip("\"'")
+            if len(my_remarks) < MAX_REMARKS_PER_TASK and feedback:
+                try:
+                    remark_payload = {"remark": feedback}
+                    eval_data = evaluation.get("evaluation", {})
+                    if eval_data and isinstance(eval_data, dict):
+                        questions = []
+                        for idx, q in enumerate(eval_data.get("questions", [])[:8]):
+                            if not isinstance(q, dict) or not q.get("text"):
+                                continue
+                            qtype = q.get("type", "multiple_choice")
+                            entry = {
+                                "id": q.get("id", f"q{idx}"),
+                                "text": q["text"],
+                                "type": qtype,
+                            }
+                            if qtype == "multiple_choice":
+                                opts = q.get("options", [])
+                                if len(opts) < 2:
+                                    continue
+                                entry["options"] = opts[:6]
+                            elif qtype == "text_input":
+                                entry["placeholder"] = q.get("placeholder", "Type your answer...")
+                            elif qtype == "scale":
+                                entry["scale_min"] = q.get("scale_min", 1)
+                                entry["scale_max"] = q.get("scale_max", 5)
+                                entry["scale_labels"] = q.get("scale_labels", ["Low", "High"])
+                            # yes_no needs no extra fields
+                            questions.append(entry)
+
+                        remark_payload["evaluation"] = {
+                            "score": int(eval_data.get("score", 5)),
+                            "strengths": [s for s in eval_data.get("strengths", [])[:5] if s],
+                            "concerns": [c for c in eval_data.get("concerns", [])[:5] if c],
+                            "questions": questions,
+                        }
+                    log_think(f"  Posting evaluation (score={eval_data.get('score')}, "
+                             f"{len(remark_payload.get('evaluation', {}).get('questions', []))} Qs)")
+                    resp = self.client.post(f"/api/v1/tasks/{task_id}/remarks", remark_payload)
+                    if resp.get("ok"):
+                        log_ok(f"  Evaluation posted to #{task_id}")
+                    else:
+                        err_info = resp.get("error", {})
+                        err_msg = err_info.get("message", str(err_info)) if isinstance(err_info, dict) else str(err_info)
+                        log_warn(f"  Failed to post evaluation to #{task_id}: {err_msg}")
+                except Exception as e:
+                    log_warn(f"Failed to send evaluation to #{task_id}: {e}")
+
+            if not is_claimed and evaluation.get("should_claim") and evaluation.get("confidence") in ("high", "medium"):
                 if best_task is None or evaluation.get("proposed_credits", 0) > (best_evaluation or {}).get("proposed_credits", 0):
                     best_task = detail
                     best_evaluation = evaluation
                     log_think(f"  -> Good fit! confidence={evaluation.get('confidence')}, "
                              f"bid={evaluation.get('proposed_credits')}")
+            elif is_claimed:
+                log_think(f"  -> Already claimed, posted follow-up feedback")
+                self.attempted_tasks[task_id] = datetime.now(timezone.utc)
             else:
-                reason = evaluation.get("reason", "not a good fit")
-                feedback = evaluation.get("feedback", reason).strip().strip('"\'')
-                is_vague = evaluation.get("is_vague", False)
-                
-                log_think(f"  -> Skipping: {reason[:80]}")
-
-                # Send constructive remark ONLY if we haven't hit the cap
-                if len(my_remarks) < MAX_REMARKS_PER_TASK:
-                    try:
-                        remark_msg = feedback if is_vague else f"I'm passing on this task because: {feedback}"
-                        log_act(f"  -> Posting remark to #{task_id}: {remark_msg[:60]}...")
-                        resp = self.client.post(f"/api/v1/tasks/{task_id}/remarks", {
-                            "remark": remark_msg
-                        })
-                        if resp.get("ok"):
-                            log_ok(f"  -> Remark posted to #{task_id}")
-                        else:
-                            log_warn(f"  -> Failed to post remark to #{task_id}: {resp.get('error')}")
-                    except Exception as e:
-                        log_warn(f"Failed to send remark to #{task_id}: {e}")
+                log_think(f"  -> Skipping: {evaluation.get('reason', 'not a good fit')[:80]}")
 
                 # CRITICAL: Mark with current time AFTER posting so we don't re-evaluate next tick
                 self.attempted_tasks[task_id] = datetime.now(timezone.utc)

@@ -231,12 +231,30 @@ class SwarmOrchestrator:
         except Exception as e:
             log_warn(f"Could not load existing claims: {e}", ORCH)
 
+    def _wait_for_backend(self, max_retries: int = 20, wait: int = 5) -> dict:
+        """Wait for backend to be reachable and authenticate. Retries with backoff."""
+        for attempt in range(1, max_retries + 1):
+            try:
+                profile = self.client.get_profile()
+                if profile:
+                    return profile
+                log_warn(
+                    f"Auth failed (attempt {attempt}/{max_retries}) — retrying in {wait}s...",
+                    ORCH,
+                )
+            except Exception as e:
+                log_warn(
+                    f"Backend not reachable (attempt {attempt}/{max_retries}): {e} — retrying in {wait}s...",
+                    ORCH,
+                )
+            time.sleep(wait)
+
+        log_err("Failed to connect to backend after all retries — check API key and backend status", ORCH)
+        sys.exit(1)
+
     def run(self):
         """Main orchestrator loop."""
-        profile = self.client.get_profile()
-        if not profile:
-            log_err("Failed to authenticate — check your API key", ORCH)
-            sys.exit(1)
+        profile = self._wait_for_backend()
 
         print(f"\n{'='*60}")
         print(f"  TaskHive Swarm Orchestrator")

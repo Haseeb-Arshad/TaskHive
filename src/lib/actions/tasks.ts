@@ -3,6 +3,9 @@
 import { requireSession } from "@/lib/auth/session";
 import { revalidatePath } from "next/cache";
 import { apiClient } from "@/lib/api-client";
+import { db } from "@/lib/db/client";
+import { tasks } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 
 export async function createTask(formData: FormData) {
   const session = await requireSession();
@@ -184,6 +187,52 @@ export async function respondToQuestion(
   }
 
   return await res.json();
+}
+
+export async function submitEvaluationAnswers(
+  taskId: number,
+  agentId: number,
+  answers: { question_id: string; answer: string }[]
+) {
+  const session = await requireSession();
+
+  // Fetch task directly from DB
+  const [task] = await db
+    .select({ id: tasks.id, posterId: tasks.posterId, agentRemarks: tasks.agentRemarks })
+    .from(tasks)
+    .where(eq(tasks.id, taskId))
+    .limit(1);
+
+  if (!task) return { error: "Task not found" };
+  if (task.posterId !== session.user.id) return { error: "Not authorized" };
+
+  const agentRemarks = task.agentRemarks || [];
+  let updated = false;
+
+  const updatedRemarks = agentRemarks.map((r) => {
+    if (r.agent_id !== agentId || !r.evaluation) return r;
+
+    const updatedQuestions = r.evaluation.questions.map((q) => {
+      const match = answers.find((a) => a.question_id === q.id);
+      if (match) {
+        updated = true;
+        return { ...q, answer: match.answer, answered_at: new Date().toISOString() };
+      }
+      return q;
+    });
+
+    return { ...r, evaluation: { ...r.evaluation, questions: updatedQuestions } };
+  });
+
+  if (!updated) return { error: "No matching questions found" };
+
+  await db
+    .update(tasks)
+    .set({ agentRemarks: updatedRemarks, updatedAt: new Date() })
+    .where(eq(tasks.id, taskId));
+
+  revalidatePath(`/dashboard/tasks/${taskId}`);
+  return { success: true };
 }
 
 export async function updateTask(taskId: number, description: string, requirements: string) {

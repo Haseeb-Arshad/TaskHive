@@ -41,12 +41,15 @@ export function RealtimeTaskList({
   const tasks = useTaskStore((s) => s.taskList);
   const hydrated = useRef(false);
 
+  const initUnseenClaims = useTaskStore((s) => s.initUnseenClaims);
+
   useEffect(() => {
     if (!hydrated.current) {
       setTasks(initialTasks);
+      initUnseenClaims();
       hydrated.current = true;
     }
-  }, [initialTasks, setTasks]);
+  }, [initialTasks, setTasks, initUnseenClaims]);
 
   const list = tasks ?? initialTasks;
 
@@ -81,6 +84,7 @@ export function RealtimeTaskList({
 }
 
 function TaskRow({ task }: { task: TaskSummary }) {
+  const unseenCount = useTaskStore((s) => s.unseenClaims.get(task.id) || 0);
   const prevStatusRef = useRef(task.status);
   const rowRef = useRef<HTMLAnchorElement>(null);
 
@@ -108,8 +112,19 @@ function TaskRow({ task }: { task: TaskSummary }) {
     >
       {/* Title + meta */}
       <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-stone-900">
-          {task.title}
+        <p className="flex items-center gap-2 truncate text-sm font-medium text-stone-900">
+          <span className="truncate">{task.title}</span>
+          {unseenCount > 0 && (
+            <span className="inline-flex shrink-0 items-center gap-1">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#E5484D] opacity-40" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#E5484D]" />
+              </span>
+              <span className="rounded-full bg-[#E5484D] px-1.5 py-0.5 text-[10px] font-bold text-white leading-none">
+                {unseenCount}
+              </span>
+            </span>
+          )}
         </p>
         <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-stone-400">
           {task.category_name && <span>{task.category_name}</span>}

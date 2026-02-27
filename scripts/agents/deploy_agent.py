@@ -36,10 +36,7 @@ from agents.git_ops import commit_step, push_to_remote, append_commit_log
 from agents.shell_executor import run_shell_combined, append_build_log, log_command
 
 import subprocess
-try:
-    import requests as http_requests
-except ImportError:
-    http_requests = None
+import httpx
 
 AGENT_NAME = "Deployer"
 WORKSPACE_DIR = Path("f:/TaskHive/TaskHive/agent_works")
@@ -54,36 +51,59 @@ VERCEL_PROJECT_ID = os.environ.get("VERCEL_PROJECT_ID")
 # ═══════════════════════════════════════════════════════════════════════════
 
 def run_vercel_deploy(task_dir: Path) -> str | None:
-    """Run Vercel CLI to deploy and return the production URL."""
-    if not VERCEL_TOKEN:
-        log_warn("VERCEL_TOKEN not found in environment. Skipping deployment.", AGENT_NAME)
-        return None
-
+    """
+    Run Vercel CLI to deploy and return the production URL.
+    Tries two strategies:
+      1. With --token (if VERCEL_TOKEN env var is set)
+      2. Without --token (uses ~/.vercel stored credentials from `vercel login`)
+    """
     log_think("Executing Vercel production deployment...", AGENT_NAME)
     append_build_log(task_dir, "Starting Vercel deployment...")
 
-    try:
-        cmd = ["vercel", "--prod", "--yes", "--token", VERCEL_TOKEN]
-        proc = subprocess.run(
-            cmd, cwd=str(task_dir), capture_output=True, text=True, timeout=180
-        )
+    env = os.environ.copy()
+    if VERCEL_ORG_ID:
+        env["VERCEL_ORG_ID"] = VERCEL_ORG_ID
+    if VERCEL_PROJECT_ID:
+        env["VERCEL_PROJECT_ID"] = VERCEL_PROJECT_ID
 
-        output = (proc.stdout + "\n" + proc.stderr).strip()
-        log_command(task_dir, "vercel --prod", proc.returncode, output)
+    # Build candidate command lists — token-based first if available
+    candidates = []
+    if VERCEL_TOKEN:
+        candidates.append(["vercel", "--prod", "--yes", "--token", VERCEL_TOKEN])
+    # Always also try without token (works if `vercel login` was run)
+    candidates.append(["vercel", "--prod", "--yes"])
 
-        if proc.returncode != 0:
-            log_err(f"Vercel Deployment Failed (code {proc.returncode}):\n{output[:500]}")
-            return None
+    for cmd in candidates:
+        try:
+            proc = subprocess.run(
+                cmd, cwd=str(task_dir), capture_output=True, text=True,
+                timeout=180, env=env,
+            )
+            output = (proc.stdout + "\n" + proc.stderr).strip()
+            log_command(task_dir, " ".join(cmd[:3]), proc.returncode, output)
 
-        # Extract URL from output
-        urls = re.findall(r'https://[a-zA-Z0-9.-]+\.vercel\.app', output)
-        if urls:
-            return urls[0]
+            if proc.returncode == 0:
+                urls = re.findall(r'https://[a-zA-Z0-9.-]+\.vercel\.app', output)
+                if urls:
+                    log_ok(f"Vercel deploy succeeded: {urls[0]}", AGENT_NAME)
+                    return urls[0]
+                log_warn("Vercel exited 0 but no URL found in output.", AGENT_NAME)
+            else:
+                log_warn(
+                    f"Vercel attempt failed (rc={proc.returncode}): {output[:300]}",
+                    AGENT_NAME,
+                )
+        except FileNotFoundError:
+            log_warn("vercel CLI not found. Install with: npm i -g vercel", AGENT_NAME)
+            break
+        except Exception as e:
+            log_warn(f"Vercel execution error: {e}", AGENT_NAME)
 
-        return None
-    except Exception as e:
-        log_err(f"Vercel execution error: {e}")
-        return None
+    log_warn(
+        "Vercel deployment failed. Run `vercel login` or set VERCEL_TOKEN in start_swarm.bat.",
+        AGENT_NAME,
+    )
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -93,14 +113,10 @@ def run_vercel_deploy(task_dir: Path) -> str | None:
 def smoke_test(url: str, retries: int = 3, wait: int = 10) -> tuple[bool, str]:
     """
     Hit the deployed URL and verify it's alive.
-    
+
     Returns:
         (passed: bool, details: str)
     """
-    if http_requests is None:
-        # Fallback: use curl
-        return _smoke_test_curl(url, retries, wait)
-
     log_think(f"Smoke testing: {url} (max {retries} attempts)...", AGENT_NAME)
 
     for attempt in range(1, retries + 1):
@@ -108,7 +124,7 @@ def smoke_test(url: str, retries: int = 3, wait: int = 10) -> tuple[bool, str]:
             log_think(f"  Attempt {attempt}/{retries}...", AGENT_NAME)
             time.sleep(wait if attempt == 1 else 5)
 
-            resp = http_requests.get(url, timeout=15, allow_redirects=True)
+            resp = httpx.get(url, timeout=15.0, follow_redirects=True)
             status = resp.status_code
             body_len = len(resp.text)
 

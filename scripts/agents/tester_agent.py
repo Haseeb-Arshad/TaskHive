@@ -87,6 +87,46 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
             log_think("Detected jest.config.js — forcing use of it.", AGENT_NAME)
             test_command = test_command.replace("npm test", "npm test -- --config jest.config.js")
 
+        # ── Build verification (site projects) ────────────────────────
+        # For Next.js / React / Vite projects, verify the production build
+        # succeeds before running unit tests — a failing build means nothing else matters.
+        pkg = task_dir / "package.json"
+        is_site_project = False
+        if pkg.exists():
+            try:
+                import json as _json
+                pkg_data = _json.loads(pkg.read_text(encoding="utf-8"))
+                scripts = pkg_data.get("scripts", {})
+                deps = {**pkg_data.get("dependencies", {}), **pkg_data.get("devDependencies", {})}
+                is_site_project = any(k in deps for k in ("next", "react", "vite", "@sveltejs/kit"))
+                has_build_script = "build" in scripts
+            except Exception:
+                has_build_script = False
+
+            if is_site_project and has_build_script:
+                log_think("Site project detected — running production build first...", AGENT_NAME)
+                append_build_log(task_dir, "Running: npm run build")
+                build_rc, build_out = run_shell_combined("npm run build", task_dir, timeout=180)
+                log_command(task_dir, "npm run build", build_rc, build_out)
+
+                if build_rc != 0:
+                    log_warn(f"Build FAILED (rc={build_rc}). Looping back to Coder.", AGENT_NAME)
+                    state["status"] = "coding"
+                    state["test_errors"] = (
+                        f"BUILD FAILED — fix these errors before tests can run:\n"
+                        f"{build_out[-2000:] if len(build_out) > 2000 else build_out}"
+                    )
+                    with open(state_file, "w") as f:
+                        import json as _json2; _json2.dump(state, f, indent=2)
+                    h = commit_step(task_dir, "build: FAILED — returning to coder")
+                    if h:
+                        append_commit_log(task_dir, h, "build: failed")
+                        push_to_remote(task_dir)
+                    return {"action": "tested", "task_id": task_id, "passed": False, "reason": "build_failed"}
+                else:
+                    log_ok("Production build PASSED.", AGENT_NAME)
+                    append_build_log(task_dir, "Build PASSED ✅")
+
         # ── Run tests ─────────────────────────────────────────────────
         log_think(f"Running tests: `{test_command}` in {task_dir}", AGENT_NAME)
         append_build_log(task_dir, f"Test command: {test_command}")

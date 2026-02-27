@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   useConversationStore,
   type TaskMessageData,
@@ -19,47 +19,52 @@ export function useTaskConversation({
   userId,
 }: UseTaskConversationOptions) {
   const messagesFromStore = useConversationStore(
-    (s) => s.messagesByTask.get(taskId)
+    (s) => s.messagesByTask[taskId]
   );
   const messages = messagesFromStore ?? EMPTY_MESSAGES;
   const loading = useConversationStore(
-    (s) => s.loadingByTask.has(taskId) ? s.loadingByTask.get(taskId)! : true
+    (s) => taskId in s.loadingByTask ? s.loadingByTask[taskId] : true
   );
   const setMessages = useConversationStore((s) => s.setMessages);
   const appendMessage = useConversationStore((s) => s.appendMessage);
   const setLoading = useConversationStore((s) => s.setLoading);
+  const registerRefetch = useConversationStore((s) => s.registerRefetch);
+  const unregisterRefetch = useConversationStore((s) => s.unregisterRefetch);
   const fetchedRef = useRef(false);
 
-  // Fetch messages on mount
-  useEffect(() => {
-    if (fetchedRef.current) return;
-    fetchedRef.current = true;
-
-    async function fetchMessages() {
-      setLoading(taskId, true);
-      try {
-        const res = await fetch(
-          `${API_BASE_URL}/api/v1/user/tasks/${taskId}/messages?limit=100`,
-          {
-            headers: {
-              "Content-Type": "application/json",
-              "X-User-ID": String(userId),
-            },
-          }
-        );
-        if (res.ok) {
-          const data = await res.json();
-          setMessages(taskId, data.messages || []);
+  // Refetch messages from backend
+  const refetch = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/api/v1/user/tasks/${taskId}/messages?limit=100`,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "X-User-ID": String(userId),
+          },
         }
-      } catch {
-        // Silently fail — messages will show empty state
-      } finally {
-        setLoading(taskId, false);
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setMessages(taskId, data.messages || []);
       }
+    } catch {
+      // silent
+    }
+  }, [taskId, userId, setMessages]);
+
+  // Fetch messages on mount + register refetch callback for SSE
+  useEffect(() => {
+    if (!fetchedRef.current) {
+      fetchedRef.current = true;
+      setLoading(taskId, true);
+      refetch().finally(() => setLoading(taskId, false));
     }
 
-    fetchMessages();
-  }, [taskId, userId, setMessages, setLoading]);
+    // Register so SSE message_created events trigger a refetch
+    registerRefetch(taskId, refetch);
+    return () => unregisterRefetch(taskId);
+  }, [taskId, refetch, setLoading, registerRefetch, unregisterRefetch]);
 
   // Send a text message
   const sendMessage = useCallback(
@@ -109,20 +114,7 @@ export function useTaskConversation({
         );
         if (res.ok) {
           const data = await res.json();
-          // Refetch messages to get the reply
-          const msgRes = await fetch(
-            `${API_BASE_URL}/api/v1/user/tasks/${taskId}/messages?limit=100`,
-            {
-              headers: {
-                "Content-Type": "application/json",
-                "X-User-ID": String(userId),
-              },
-            }
-          );
-          if (msgRes.ok) {
-            const msgData = await msgRes.json();
-            setMessages(taskId, msgData.messages || []);
-          }
+          await refetch();
           return data;
         }
       } catch {
@@ -130,29 +122,8 @@ export function useTaskConversation({
       }
       return null;
     },
-    [taskId, userId, setMessages]
+    [taskId, userId, refetch]
   );
-
-  // Refetch messages (used when SSE event arrives)
-  const refetch = useCallback(async () => {
-    try {
-      const res = await fetch(
-        `${API_BASE_URL}/api/v1/user/tasks/${taskId}/messages?limit=100`,
-        {
-          headers: {
-            "Content-Type": "application/json",
-            "X-User-ID": String(userId),
-          },
-        }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setMessages(taskId, data.messages || []);
-      }
-    } catch {
-      // silent
-    }
-  }, [taskId, userId, setMessages]);
 
   return {
     messages,

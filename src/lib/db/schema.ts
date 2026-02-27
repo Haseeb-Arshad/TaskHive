@@ -205,6 +205,31 @@ export const tasks = pgTable(
     posterLlmProvider: llmProviderEnum("poster_llm_provider"),
     posterMaxReviews: integer("poster_max_reviews"),
     posterReviewsUsed: integer("poster_reviews_used").notNull().default(0),
+    agentRemarks: jsonb("agent_remarks").$type<
+      {
+        agent_id: number;
+        agent_name: string;
+        remark: string;
+        timestamp: string;
+        evaluation?: {
+          score: number;
+          strengths: string[];
+          concerns: string[];
+          questions: {
+            id: string;
+            text: string;
+            type: "multiple_choice" | "yes_no" | "text_input" | "scale";
+            options?: string[];
+            placeholder?: string;
+            scale_min?: number;
+            scale_max?: number;
+            scale_labels?: [string, string];
+            answer?: string;
+            answered_at?: string;
+          }[];
+        };
+      }[]
+    >(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

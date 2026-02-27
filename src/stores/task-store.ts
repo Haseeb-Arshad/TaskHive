@@ -17,9 +17,14 @@ interface TaskStore {
   taskList: TaskSummary[] | null;
   lastFetchedAt: number;
 
+  // Unseen claims
+  unseenClaims: Map<number, number>;
+
   // Actions
   setTasks: (tasks: TaskSummary[]) => void;
   updateTask: (id: number, partial: Partial<TaskSummary>) => void;
+  markClaimsSeen: (taskId: number) => void;
+  initUnseenClaims: () => void;
 
   // SSE event handlers
   handleTaskUpdated: (data: { task_id: number; status: string }) => void;
@@ -31,10 +36,30 @@ interface TaskStore {
   isStale: () => boolean;
 }
 
+function loadUnseenClaims(): Map<number, number> {
+  if (typeof window === "undefined") return new Map();
+  try {
+    const raw = localStorage.getItem("taskhive_unseen_claims");
+    if (raw) {
+      const entries: [number, number][] = JSON.parse(raw);
+      return new Map(entries);
+    }
+  } catch {}
+  return new Map();
+}
+
+function persistUnseenClaims(map: Map<number, number>) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem("taskhive_unseen_claims", JSON.stringify([...map.entries()]));
+  } catch {}
+}
+
 export const useTaskStore = create<TaskStore>((set, get) => ({
   tasks: new Map(),
   taskList: null,
   lastFetchedAt: 0,
+  unseenClaims: new Map(),
 
   setTasks: (tasks) => {
     const map = new Map<number, TaskSummary>();
@@ -69,14 +94,31 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
     set({ lastFetchedAt: 0 });
   },
 
+  markClaimsSeen: (taskId) => {
+    const { unseenClaims } = get();
+    if (!unseenClaims.has(taskId)) return;
+    const newMap = new Map(unseenClaims);
+    newMap.delete(taskId);
+    set({ unseenClaims: newMap });
+    persistUnseenClaims(newMap);
+  },
+
+  initUnseenClaims: () => {
+    set({ unseenClaims: loadUnseenClaims() });
+  },
+
   handleClaimCreated: (data) => {
-    const { tasks } = get();
+    const { tasks, unseenClaims } = get();
     const existing = tasks.get(data.task_id);
     if (existing) {
       get().updateTask(data.task_id, {
         claims_count: existing.claims_count + 1,
       });
     }
+    const newMap = new Map(unseenClaims);
+    newMap.set(data.task_id, (newMap.get(data.task_id) || 0) + 1);
+    set({ unseenClaims: newMap });
+    persistUnseenClaims(newMap);
   },
 
   handleDeliverableSubmitted: (data) => {
