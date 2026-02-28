@@ -31,6 +31,8 @@ from agents.base_agent import (
     log_ok,
     log_think,
     log_warn,
+    smart_llm_call,
+    write_progress,
 )
 from agents.git_ops import commit_step, push_to_remote, append_commit_log
 from agents.shell_executor import run_shell_combined, append_build_log, log_command
@@ -178,6 +180,9 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
         repo_url = state.get("repo_url", "No Repo URL Provided")
         iterations = state.get("iterations", 1)
         append_build_log(task_dir, f"=== Deploy Agent starting for task #{task_id} ===")
+        write_progress(task_dir, task_id, "deploying", "Deploying to Vercel",
+                       "Running Vercel production deployment",
+                       "Initializing deployment pipeline...", 96.0, subtask_id=101)
 
         # ── Deploy to Vercel ──────────────────────────────────────────
         vercel_url = run_vercel_deploy(task_dir)
@@ -185,6 +190,10 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
 
         if vercel_url:
             log_ok(f"Vercel Deployment URL: {vercel_url}", AGENT_NAME)
+            write_progress(task_dir, task_id, "deploying", "Smoke testing deployment",
+                           f"Verifying deployment is live at {vercel_url}",
+                           "Running smoke test...", 97.0, subtask_id=101,
+                           metadata={"url": vercel_url})
 
             # ── Smoke Test ────────────────────────────────────────────
             passed, details = smoke_test(vercel_url)
@@ -192,6 +201,10 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
 
             if passed:
                 log_ok(f"Smoke test PASSED: {details}", AGENT_NAME)
+                write_progress(task_dir, task_id, "deploying", "Deployment live",
+                               f"Site is live and responding — {vercel_url}",
+                               details, 99.0, subtask_id=101,
+                               metadata={"url": vercel_url, "smoke_test": "passed"})
                 state["vercel_url"] = vercel_url
                 state["smoke_test"] = {"passed": True, "details": details}
                 append_build_log(task_dir, f"Smoke test PASSED: {details}")
@@ -234,28 +247,87 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
             log_ok(f"Deploy results committed [{h}] and pushed", AGENT_NAME)
 
         # ── Craft deliverable ─────────────────────────────────────────
+        vercel_live = state.get("vercel_url")
+
+        # Fetch task details for the LLM summary
+        task_data = {}
+        try:
+            task_data = client.get_task(task_id) or {}
+        except Exception:
+            pass
+
+        task_title = task_data.get("title") or f"Task #{task_id}"
+        task_desc = (task_data.get("description") or "")[:600]
+        task_reqs = (task_data.get("requirements") or "")[:400]
+
+        # Collect what was implemented from the plan + completed steps
+        plan = state.get("plan") or {}
+        project_type = plan.get("project_type") or "project"
+        completed_steps = state.get("completed_steps") or []
+        step_descriptions = [
+            s.get("description") or s.get("commit_message") or ""
+            for s in completed_steps
+            if s.get("description") or s.get("commit_message")
+        ]
+
+        steps_text = "\n".join(f"- {d}" for d in step_descriptions) if step_descriptions else "Full implementation completed."
+
+        # Generate a natural language summary using LLM
+        log_think("Generating natural language deliverable summary...", AGENT_NAME)
+        llm_summary = ""
+        try:
+            llm_summary = smart_llm_call(
+                system=(
+                    "You are a technical project manager writing a clear, friendly delivery summary for a non-technical client. "
+                    "Your job is to explain WHAT was built and WHAT features were implemented — in plain English. "
+                    "Do NOT include any code, commands, installation steps, or developer jargon. "
+                    "Write as if explaining to a business owner what they now have. "
+                    "Be warm, clear, and concise. Use short bullet points for features. "
+                    "Output only the summary text — no preamble, no markdown headers, just paragraphs and bullet points."
+                ),
+                user=(
+                    f"Task: {task_title}\n"
+                    f"Description: {task_desc}\n"
+                    f"Requirements: {task_reqs}\n\n"
+                    f"Project type: {project_type}\n"
+                    f"Implementation steps completed:\n{steps_text}\n\n"
+                    "Write a 2–3 sentence overview of what was built, followed by a bullet list of the key features and "
+                    "functionality that is now available. Keep it friendly and jargon-free."
+                ),
+                max_tokens=600,
+                complexity="routine",
+            )
+        except Exception as e:
+            log_warn(f"LLM summary failed: {e} — using fallback", AGENT_NAME)
+
+        # Build the final deliverable text
         delivery_lines = [
-            f"🚀 **Automated CI/CD Delivery**",
-            "",
-            f"The Swarm has successfully written, tested, pushed, and deployed the code for this task.",
+            "## Delivery Complete",
             "",
             f"**GitHub Repository**: {repo_url}",
         ]
 
-        if state.get("vercel_url"):
-            delivery_lines.append(f"**Live Deployment**: {state['vercel_url']}")
+        if vercel_live and not vercel_live.startswith("Deployment skipped"):
+            delivery_lines.append(f"**Live Deployment**: {vercel_live}")
             if deploy_passed:
-                delivery_lines.append("**Smoke Test**: ✅ Passed — site is live and responding")
+                delivery_lines.append("**Smoke Test**: Passed — site is live and responding correctly")
             else:
-                delivery_lines.append("**Smoke Test**: ⚠️ Warning — deploy succeeded but smoke test had issues")
+                delivery_lines.append("**Smoke Test**: Warning — deployed but smoke test had issues")
+        else:
+            delivery_lines.append(
+                "**Live Deployment**: Not available (no VERCEL_TOKEN configured)"
+            )
 
-        commit_log = state.get("commit_log", [])
-        if commit_log:
-            delivery_lines.append(f"**Total Commits**: {len(commit_log)}")
-
-        delivery_lines.append(f"**Testing Iterations**: {iterations}")
         delivery_lines.append("")
-        delivery_lines.append("All automated tests passed. The codebase is production-ready.")
+
+        if llm_summary.strip():
+            delivery_lines.append("### About this delivery")
+            delivery_lines.append(llm_summary.strip())
+        else:
+            # Fallback: plain-text list of completed steps
+            delivery_lines.append("### What was implemented")
+            for d in (step_descriptions or ["Full implementation completed and pushed to GitHub."]):
+                delivery_lines.append(f"- {d}")
 
         content = "\n".join(delivery_lines)
 
@@ -270,6 +342,10 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
                 raise e
 
         # Mark finished
+        write_progress(task_dir, task_id, "complete", "Delivery complete",
+                       "Deliverable submitted to TaskHive — task is complete",
+                       f"GitHub: {repo_url}", 100.0, subtask_id=101,
+                       metadata={"repo": repo_url, "vercel": state.get("vercel_url")})
         state["status"] = "delivered"
         with open(state_file, "w") as f:
             json.dump(state, f, indent=2)

@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useExecutionProgress } from "@/hooks/use-execution-progress";
 import type { ProgressStep } from "@/hooks/use-execution-progress";
-import { API_BASE_URL } from "@/lib/api-client";
 
 /* ═══════════════════════════════════════════════════════════
    TYPES
@@ -138,9 +137,8 @@ function AgentProcessingSplash({
 
   return (
     <div
-      className={`flex flex-col items-center justify-center px-6 py-20 text-center transition-opacity duration-500 ${
-        fading ? "opacity-0" : "opacity-100"
-      }`}
+      className={`flex flex-col items-center justify-center px-6 py-20 text-center transition-opacity duration-500 ${fading ? "opacity-0" : "opacity-100"
+        }`}
     >
       {/* ── Progress Ring ── */}
       <div className="relative mb-8">
@@ -226,29 +224,9 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
   const [subtasks, setSubtasks] = useState<SubtaskData[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPhase, setSelectedPhase] = useState<string | null>(null);
-  const [showSplash, setShowSplash] = useState(true);
-  const [splashFading, setSplashFading] = useState(false);
 
   const { steps, currentPhase, progressPct, connected } =
     useExecutionProgress(executionId);
-
-  // Transition: splash → journey map when enough progress
-  useEffect(() => {
-    if (!showSplash) return;
-    const shouldTransition = progressPct >= 25 || steps.length >= 4;
-    if (shouldTransition) {
-      setSplashFading(true);
-      const timer = setTimeout(() => setShowSplash(false), 500);
-      return () => clearTimeout(timer);
-    }
-  }, [progressPct, steps.length, showSplash]);
-
-  // Skip splash entirely for completed/delivered/failed tasks
-  useEffect(() => {
-    if (["completed", "delivered"].includes(taskStatus)) {
-      setShowSplash(false);
-    }
-  }, [taskStatus]);
 
   // Fetch execution data
   useEffect(() => {
@@ -257,7 +235,7 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
     async function fetchData() {
       try {
         const res = await fetch(
-          `${API_BASE_URL}/orchestrator/tasks/by-task/${taskId}/active`
+          `/api/orchestrator/tasks/by-task/${taskId}/active`
         );
         if (res.ok) {
           const json = await res.json();
@@ -265,27 +243,22 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
             const eid = json.data.execution_id;
             setExecutionId(eid);
 
-            try {
-              const detailRes = await fetch(
-                `${API_BASE_URL}/orchestrator/tasks/${eid}`
-              );
-              if (detailRes.ok) {
-                const detail = await detailRes.json();
-                if (!cancelled) setExecution(detail.data);
-              }
-            } catch { /* ignore */ }
+            const detailPromise = fetch(`/api/orchestrator/tasks/${eid}`).catch(() => null);
+            const previewPromise = fetch(`/api/orchestrator/preview/executions/${eid}`).catch(() => null);
 
-            try {
-              const previewRes = await fetch(
-                `${API_BASE_URL}/orchestrator/preview/executions/${eid}`
-              );
-              if (previewRes.ok) {
-                const preview = await previewRes.json();
-                if (!cancelled && preview.data?.subtasks) {
-                  setSubtasks(preview.data.subtasks);
-                }
+            const [detailRes, previewRes] = await Promise.all([detailPromise, previewPromise]);
+
+            if (detailRes?.ok) {
+              const detail = await detailRes.json().catch(() => null);
+              if (!cancelled && detail) setExecution(detail.data);
+            }
+
+            if (previewRes?.ok) {
+              const preview = await previewRes.json().catch(() => null);
+              if (!cancelled && preview?.data?.subtasks) {
+                setSubtasks(preview.data.subtasks);
               }
-            } catch { /* ignore */ }
+            }
           }
         }
       } catch {
@@ -324,55 +297,31 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
     );
   }
 
-  // ── Splash: while loading OR during early phases ──
-  if (loading && showSplash) {
+  if (loading && !executionId) {
+    return (
+      <div className="flex flex-col items-center justify-center px-6 py-20 text-center animate-pulse">
+        <div className="mb-4 h-12 w-12 rounded-full border-4 border-stone-200 border-t-emerald-500 animate-spin" />
+        <p className="text-sm font-semibold text-stone-700">Loading activity...</p>
+      </div>
+    );
+  }
+
+  // ── Animated splash if no subtasks are ready yet and it is working ──
+  const isWorking = ["claimed", "in_progress"].includes(taskStatus);
+  if (isWorking && subtasks.length === 0) {
     return (
       <AgentProcessingSplash
-        currentPhase={null}
-        latestDetail={null}
-        progressPct={0}
+        currentPhase={currentPhase}
+        latestDetail={steps.length > 0 ? (steps[steps.length - 1].detail || steps[steps.length - 1].description) : null}
+        progressPct={progressPct}
         fading={false}
       />
     );
   }
 
-  if (!executionId && !loading) {
-    // No execution yet but task is claimed — show splash with generic message
-    if (showSplash && ["claimed", "in_progress"].includes(taskStatus)) {
-      return (
-        <AgentProcessingSplash
-          currentPhase={null}
-          latestDetail="The orchestrator is picking up your task\u2026"
-          progressPct={0}
-          fading={false}
-        />
-      );
-    }
-    return (
-      <div className="flex flex-col items-center justify-center px-6 py-20 text-center">
-        <p className="mb-1 text-sm font-semibold text-stone-700">No execution data</p>
-        <p className="text-xs text-stone-400">
-          Agent activity will appear here once the orchestrator starts processing.
-        </p>
-      </div>
-    );
-  }
-
-  // ── Splash with live SSE data (early phases) ──
-  if (executionId && showSplash) {
-    const latestStep = steps.length > 0 ? steps[steps.length - 1] : null;
-    return (
-      <AgentProcessingSplash
-        currentPhase={currentPhase}
-        latestDetail={latestStep?.detail || latestStep?.description || null}
-        progressPct={progressPct}
-        fading={splashFading}
-      />
-    );
-  }
 
   // ── Compute state ──
-  const isActive = ["claimed", "in_progress"].includes(taskStatus);
+  const isActive = isWorking;
   const isComplete =
     execution?.status === "completed" ||
     taskStatus === "completed" ||
@@ -386,13 +335,6 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
     existing.push(step);
     phaseSteps.set(step.phase, existing);
   }
-
-  const currentIdx = PHASES.findIndex((p) => p.key === currentPhase);
-  const completedPhases = isComplete
-    ? PHASES.length
-    : currentIdx >= 0
-      ? currentIdx
-      : 0;
 
   // Elapsed time
   const startTime = execution?.started_at
@@ -410,7 +352,13 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
       : `${Math.floor(elapsed / 1000)}s`;
 
   // Auto-select current phase
-  const activePhase = selectedPhase ?? currentPhase ?? PHASES[0].key;
+  const activePhase =
+    selectedPhase ??
+    String(
+      subtasks.find((s) => s.status === "in_progress")?.id ??
+      subtasks[0]?.id ??
+      ""
+    );
 
   return (
     <div className="p-5">
@@ -418,13 +366,12 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
       <div className="mb-5 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span
-            className={`h-3 w-3 rounded-full ${
-              isComplete
-                ? "bg-emerald-500"
-                : isFailed
-                  ? "bg-red-500"
-                  : "bg-[#E5484D] animate-pulse"
-            }`}
+            className={`h-3 w-3 rounded-full ${isComplete
+              ? "bg-emerald-500"
+              : isFailed
+                ? "bg-red-500"
+                : "bg-[#E5484D] animate-pulse"
+              }`}
           />
           <span className="text-sm font-semibold text-stone-800">
             {isComplete
@@ -457,9 +404,8 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
 
       {/* ── Quest Progress ── */}
       <QuestProgress
-        completedPhases={completedPhases}
-        totalPhases={PHASES.length}
-        progressPct={isComplete ? 100 : progressPct}
+        subtasks={subtasks}
+        progressPct={progressPct}
         isComplete={isComplete}
         isFailed={isFailed}
       />
@@ -469,30 +415,23 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
         {/* Left: Interactive journey map */}
         <div className="lg:col-span-3">
           <JourneyMap
-            phases={PHASES}
-            currentPhase={currentPhase}
-            completedPhases={completedPhases}
-            isComplete={isComplete}
-            isFailed={isFailed}
+            subtasks={subtasks}
             selectedPhase={activePhase}
             onSelectPhase={setSelectedPhase}
-            phaseSteps={phaseSteps}
             isActive={isActive}
-            progressPct={isComplete ? 100 : progressPct}
+            isComplete={isComplete}
+            isFailed={isFailed}
           />
         </div>
 
         {/* Right: Checkpoint detail */}
         <div className="lg:col-span-2">
           <CheckpointDetail
-            phase={PHASES.find((p) => p.key === activePhase) || PHASES[0]}
-            phaseIndex={PHASES.findIndex((p) => p.key === activePhase)}
-            steps={phaseSteps.get(activePhase) || []}
             subtasks={subtasks}
+            selectedPhase={activePhase}
+            steps={steps}
             isComplete={isComplete}
             isFailed={isFailed}
-            currentPhase={currentPhase}
-            completedPhases={completedPhases}
             isActive={isActive}
           />
         </div>
@@ -525,18 +464,20 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
    ═══════════════════════════════════════════════════════════ */
 
 function QuestProgress({
-  completedPhases,
-  totalPhases,
+  subtasks,
   progressPct,
   isComplete,
   isFailed,
 }: {
-  completedPhases: number;
-  totalPhases: number;
+  subtasks: SubtaskData[];
   progressPct: number;
   isComplete: boolean;
   isFailed: boolean;
 }) {
+  const totalSteps = subtasks.length;
+  const completedSteps = subtasks.filter(s => s.status === "completed").length;
+  const currentStepIdx = subtasks.findIndex(s => s.status === "in_progress");
+
   return (
     <div className="rounded-xl border border-stone-200 bg-white p-4">
       <div className="mb-2 flex items-center justify-between">
@@ -549,46 +490,47 @@ function QuestProgress({
       </div>
 
       <p
-        className={`mb-3 text-sm font-bold ${
-          isComplete
-            ? "text-emerald-600"
-            : isFailed
-              ? "text-red-600"
-              : "text-stone-800"
-        }`}
+        className={`mb-3 text-sm font-bold ${isComplete
+          ? "text-emerald-600"
+          : isFailed
+            ? "text-red-600"
+            : "text-stone-800"
+          }`}
       >
         {isComplete
-          ? `${totalPhases} of ${totalPhases} checkpoints completed!`
+          ? `${totalSteps} of ${totalSteps} checkpoints completed!`
           : isFailed
             ? "Execution encountered an error"
-            : `${completedPhases} of ${totalPhases} checkpoints completed`}
+            : `${completedSteps} of ${totalSteps} checkpoints completed`}
       </p>
 
       {/* Segmented progress */}
       <div className="flex gap-1">
-        {PHASES.map((phase, i) => (
-          <div
-            key={phase.key}
-            className="h-2.5 flex-1 overflow-hidden rounded-full bg-stone-100"
-          >
+        {subtasks.map((sub, i) => {
+          const isDone = isComplete || sub.status === "completed";
+          const isCurrent = sub.status === "in_progress" && !isComplete;
+
+          return (
             <div
-              className="h-full rounded-full transition-all duration-700 ease-out"
-              style={{
-                width:
-                  i < completedPhases
-                    ? "100%"
-                    : i === completedPhases && !isComplete
-                      ? `${Math.max(((progressPct - (completedPhases / PHASES.length) * 100) / (100 / PHASES.length)) * 100, 8)}%`
-                      : "0%",
-                backgroundColor: isComplete
-                  ? "#10b981"
-                  : isFailed && i === completedPhases
-                    ? "#ef4444"
-                    : phase.color,
-              }}
-            />
-          </div>
-        ))}
+              key={sub.id}
+              className="h-2.5 flex-1 overflow-hidden rounded-full bg-stone-100"
+            >
+              <div
+                className="h-full rounded-full transition-all duration-700 ease-out"
+                style={{
+                  width: isDone ? "100%" : isCurrent ? "50%" : "0%", // Simple 50% for in_progress steps
+                  backgroundColor: isComplete || isDone
+                    ? "#10b981"
+                    : isFailed && isCurrent
+                      ? "#ef4444"
+                      : isCurrent
+                        ? "#3b82f6"
+                        : "#e7e5e4",
+                }}
+              />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -599,47 +541,45 @@ function QuestProgress({
    ═══════════════════════════════════════════════════════════ */
 
 function JourneyMap({
-  phases,
-  currentPhase,
-  completedPhases,
-  isComplete,
-  isFailed,
+  subtasks,
   selectedPhase,
   onSelectPhase,
-  phaseSteps,
   isActive,
-  progressPct,
+  isFailed,
+  isComplete,
 }: {
-  phases: typeof PHASES;
-  currentPhase: string | null;
-  completedPhases: number;
-  isComplete: boolean;
-  isFailed: boolean;
+  subtasks: SubtaskData[];
   selectedPhase: string;
   onSelectPhase: (key: string) => void;
-  phaseSteps: Map<string, ProgressStep[]>;
   isActive: boolean;
-  progressPct: number;
+  isFailed: boolean;
+  isComplete: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // SVG dimensions
-  const W = 600;
-  const H = 520;
-  const PAD = 60;
+  // Completed percentage derived from subtasks
+  const completedCount = subtasks.filter(s => s.status === "completed").length;
+  const progressPct = subtasks.length > 0 ? (completedCount / subtasks.length) * 100 : 0;
 
-  // Checkpoint positions — winding path from bottom to top
-  const checkpoints = useMemo(() => [
-    { x: PAD + 40,  y: H - 60  },   // Triage (bottom-left)
-    { x: W - PAD - 40, y: H - 150 }, // Clarify (right)
-    { x: PAD + 80,  y: H - 240 },    // Plan (left)
-    { x: W - PAD - 60, y: H - 310 }, // Execute (right)
-    { x: PAD + 60,  y: H - 390 },    // Review (left)
-    { x: W / 2,     y: 50  },        // Deliver (top-center)
-  ], []);
+  // SVG dimensions
+  const W = 500;
+  // Dynamic height based on number of tasks, min 600
+  const H = Math.max(600, subtasks.length * 100 + 150);
+
+  // Dynamically calculate checkpoints positions winding back and forth
+  const checkpoints = useMemo(() => {
+    return subtasks.map((_, i) => {
+      const isRight = i % 2 !== 0;
+      return {
+        x: isRight ? 350 : 150, // Alternate left/right offset 
+        y: 80 + (i * 100), // Move downward linearly 100px per node
+      };
+    });
+  }, [subtasks]);
 
   // Build path
   const pathD = useMemo(() => {
+    if (checkpoints.length === 0) return "";
     const pts = checkpoints;
     let d = `M ${pts[0].x} ${pts[0].y}`;
     for (let i = 1; i < pts.length; i++) {
@@ -657,8 +597,8 @@ function JourneyMap({
   return (
     <div
       ref={containerRef}
-      className="relative overflow-hidden rounded-2xl border border-stone-200 bg-gradient-to-b from-emerald-50/40 via-green-50/20 to-amber-50/30"
-      style={{ minHeight: 420 }}
+      className="relative overflow-hidden rounded-2xl border border-stone-200 bg-[#f8fafc]"
+      style={{ minHeight: 500 }}
     >
       {/* Background decorations */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -724,186 +664,87 @@ function JourneyMap({
         <path
           d={pathD}
           fill="none"
-          stroke={isComplete ? "#10b981" : isFailed ? "#ef4444" : "#E5484D"}
+          stroke={isComplete ? "#10b981" : isFailed ? "#ef4444" : "#10b981"}
           strokeWidth="4"
           strokeDasharray="12 8"
           strokeLinecap="round"
           style={{
             strokeDashoffset: 0,
-            clipPath: `inset(${
-              isComplete
-                ? 0
-                : Math.max(0, 100 - (progressPct * 1.1))
-            }% 0 0 0)`,
+            clipPath: `inset(0 0 ${isComplete ? 0 : Math.max(0, 100 - progressPct)}% 0)`,
             transition: "clip-path 1s ease-out",
           }}
         />
 
         {/* Checkpoint nodes */}
-        {phases.map((phase, i) => {
+        {subtasks.map((sub, i) => {
           const pt = checkpoints[i];
-          const isDone = isComplete || i < completedPhases;
-          const isCurrent = phase.key === currentPhase && !isComplete;
-          const isSelected = phase.key === selectedPhase;
-          const hasSteps = phaseSteps.has(phase.key);
+          const isDone = isComplete || sub.status === "completed";
+          const isCurrent = sub.status === "in_progress" && !isComplete;
+          const isSelected = String(sub.id) === selectedPhase;
 
           return (
             <g
-              key={phase.key}
+              key={sub.id}
               className="cursor-pointer"
-              onClick={() => onSelectPhase(phase.key)}
+              onClick={() => onSelectPhase(String(sub.id))}
               style={{ transition: "transform 0.3s" }}
             >
-              {/* Selection ring */}
-              {isSelected && (
-                <circle
-                  cx={pt.x}
-                  cy={pt.y}
-                  r="32"
-                  fill="none"
-                  stroke={isDone ? "#10b981" : isCurrent ? "#E5484D" : phase.color}
-                  strokeWidth="2"
-                  strokeDasharray="6 4"
-                  opacity="0.6"
-                >
-                  <animateTransform
-                    attributeName="transform"
-                    type="rotate"
-                    from={`0 ${pt.x} ${pt.y}`}
-                    to={`360 ${pt.x} ${pt.y}`}
-                    dur="12s"
-                    repeatCount="indefinite"
-                  />
-                </circle>
+              {/* Flag pole (if completed or active) */}
+              {(isDone || isCurrent) && (
+                <g transform={`translate(${pt.x + 20}, ${pt.y - 45})`}>
+                  <line x1="0" y1="0" x2="0" y2="40" stroke="#78716c" strokeWidth="2.5" strokeLinecap="round" />
+                  <path d="M 0 0 L 16 6 L 0 12 Z" fill="#10b981" />
+                </g>
               )}
 
-              {/* Outer glow for current */}
-              {isCurrent && isActive && (
-                <circle
-                  cx={pt.x}
-                  cy={pt.y}
-                  r="28"
-                  fill="#E5484D"
-                  opacity="0.15"
-                >
-                  <animate
-                    attributeName="r"
-                    values="28;36;28"
-                    dur="2s"
-                    repeatCount="indefinite"
-                  />
-                  <animate
-                    attributeName="opacity"
-                    values="0.15;0.05;0.15"
-                    dur="2s"
-                    repeatCount="indefinite"
-                  />
-                </circle>
-              )}
-
-              {/* Main circle */}
-              <circle
+              {/* Base platform shadow */}
+              <ellipse
                 cx={pt.x}
-                cy={pt.y}
-                r="24"
-                fill={
-                  isDone
-                    ? "#10b981"
-                    : isCurrent
-                      ? "#E5484D"
-                      : hasSteps
-                        ? "#f5f5f4"
-                        : "#fafaf9"
-                }
-                stroke={
-                  isDone
-                    ? "#059669"
-                    : isCurrent
-                      ? "#dc2626"
-                      : isSelected
-                        ? phase.color
-                        : "#d6d3d1"
-                }
-                strokeWidth={isSelected ? 3 : 2}
-                filter={isCurrent ? "url(#glow)" : undefined}
+                cy={pt.y + 12}
+                rx="24"
+                ry="8"
+                fill="black"
+                opacity="0.1"
               />
 
-              {/* Icon */}
-              {isDone ? (
-                <g transform={`translate(${pt.x - 8}, ${pt.y - 8})`}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                </g>
-              ) : (
-                <g transform={`translate(${pt.x - 8}, ${pt.y - 8})`}>
-                  <PhaseIconSVG
-                    phase={phase.icon}
-                    color={isCurrent ? "white" : hasSteps ? "#78716c" : "#d6d3d1"}
-                  />
-                </g>
-              )}
-
-              {/* Flag on top */}
-              {(isDone || isCurrent) && (
-                <g transform={`translate(${pt.x + 14}, ${pt.y - 30})`}>
-                  <line
-                    x1="0"
-                    y1="0"
-                    x2="0"
-                    y2="18"
-                    stroke="#78716c"
-                    strokeWidth="1.5"
-                  />
-                  <path
-                    d="M 0 0 L 14 4 L 0 8 Z"
-                    fill={isDone ? "#10b981" : "#E5484D"}
-                  />
-                </g>
-              )}
-
-              {/* Label bubble */}
-              <g transform={`translate(${pt.x}, ${pt.y + 34})`}>
+              {/* The Pill Label (The main interactable node) */}
+              <g transform={`translate(${pt.x}, ${pt.y})`}>
                 <rect
-                  x={-phase.label.length * 4.2 - 10}
-                  y="-10"
-                  width={phase.label.length * 8.4 + 20}
-                  height="22"
-                  rx="11"
-                  fill={
-                    isDone
-                      ? "#ecfdf5"
-                      : isCurrent
-                        ? "#fff1f2"
-                        : "white"
-                  }
-                  stroke={
-                    isDone
-                      ? "#a7f3d0"
-                      : isCurrent
-                        ? "#fecdd3"
-                        : "#e7e5e4"
-                  }
-                  strokeWidth="1"
+                  x="-75"
+                  y="-14"
+                  width="150"
+                  height="28"
+                  rx="14"
+                  fill="white"
+                  stroke={isSelected ? "#10b981" : "#e7e5e4"}
+                  strokeWidth={isSelected ? "2" : "1"}
+                  filter={isSelected ? "url(#glow)" : "drop-shadow(0 4px 6px rgba(0,0,0,0.05))"}
+                  className="transition-all duration-300"
                 />
+
+                {/* Status Icon Indicator inside pill */}
+                <circle cx="-56" cy="0" r="10" fill={isDone || isCurrent ? "#10b981" : "#f5f5f4"} />
+                {isDone || isCurrent ? (
+                  <path d="M-60 0 L-57 3 L-52 -3" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                ) : null}
+
+                {/* Text Label */}
                 <text
-                  textAnchor="middle"
-                  y="3"
-                  fontSize="10"
-                  fontWeight="700"
+                  x="-35"
+                  y="4"
+                  fontSize="12"
+                  fontWeight="600"
                   fontFamily="system-ui, sans-serif"
-                  fill={
-                    isDone
-                      ? "#059669"
-                      : isCurrent
-                        ? "#E5484D"
-                        : "#78716c"
-                  }
+                  fill={isDone || isCurrent ? "#059669" : "#78716c"}
                 >
-                  {isDone ? "\u2713 " : ""}
-                  {phase.label}
+                  <tspan className="truncate">{sub.title}</tspan>
                 </text>
               </g>
+
+              {/* Pulse effect if it's the current active working phase */}
+              {isCurrent && isActive && (
+                <circle cx={pt.x - 56} cy={pt.y} r="10" fill="none" stroke="#10b981" strokeWidth="2" className="animate-ping origin-center" />
+              )}
             </g>
           );
         })}
@@ -917,101 +758,96 @@ function JourneyMap({
    ═══════════════════════════════════════════════════════════ */
 
 function CheckpointDetail({
-  phase,
-  phaseIndex,
-  steps,
   subtasks,
+  selectedPhase,
+  steps,
   isComplete,
   isFailed,
-  currentPhase,
-  completedPhases,
   isActive,
 }: {
-  phase: (typeof PHASES)[number];
-  phaseIndex: number;
-  steps: ProgressStep[];
   subtasks: SubtaskData[];
+  selectedPhase: string;
+  steps: ProgressStep[];
   isComplete: boolean;
   isFailed: boolean;
-  currentPhase: string | null;
-  completedPhases: number;
   isActive: boolean;
 }) {
-  const isDone = isComplete || phaseIndex < completedPhases;
-  const isCurrent = phase.key === currentPhase && !isComplete;
+  const activeSubtaskIndex = subtasks.findIndex((s) => String(s.id) === selectedPhase);
+  const subtask = subtasks[activeSubtaskIndex];
+
+  if (!subtask) return null;
+
+  const isDone = isComplete || subtask.status === "completed";
+  const isCurrent = subtask.status === "in_progress" && !isComplete;
   const isPending = !isDone && !isCurrent;
 
-  // Get relevant subtasks for "planning" and "execution" phases
-  const phaseSubtasks =
-    phase.key === "planning" || phase.key === "execution" ? subtasks : [];
+  // Filter steps tied specifically to this subtask
+  const phaseSteps = steps.filter((step) => String(step.subtask_id) === String(subtask.id));
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Phase header card */}
-      <div
-        className="rounded-xl border p-4"
-        style={{
-          borderColor: isDone
-            ? "#a7f3d0"
-            : isCurrent
-              ? phase.color + "40"
-              : "#e7e5e4",
-          background: isDone
-            ? "#ecfdf5"
-            : isCurrent
-              ? phase.bg
-              : "white",
-        }}
-      >
-        <div className="mb-2 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div
-              className="flex h-8 w-8 items-center justify-center rounded-lg"
-              style={{
-                background: isDone ? "#10b981" : isCurrent ? phase.color : "#e7e5e4",
-              }}
-            >
-              <PhaseIconInline phase={phase.icon} white={isDone || isCurrent} />
-            </div>
-            <div>
-              <p className="text-sm font-bold text-stone-900">
-                Checkpoint {phaseIndex + 1}: {phase.fullLabel}
-              </p>
-              <p className="text-[11px] text-stone-500">{phase.desc}</p>
-            </div>
-          </div>
-
-          {/* Status badge */}
+      {/* Phase header card (Like the reference image's checkpoint boxes) */}
+      <div className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
           <span
-            className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
-              isDone
-                ? "bg-emerald-100 text-emerald-700"
-                : isCurrent
-                  ? "bg-white/80 text-stone-700"
-                  : "bg-stone-100 text-stone-400"
-            }`}
+            className={`rounded-full px-3 py-1 text-xs font-semibold ${isDone
+              ? "bg-emerald-500 text-white"
+              : isCurrent
+                ? "bg-blue-500 text-white"
+                : "bg-stone-200 text-stone-500"
+              }`}
           >
             {isDone ? "Completed" : isCurrent ? "In Progress" : "Pending"}
           </span>
+          {isDone && (
+            <span className="text-xs text-stone-400">
+              {/* Just a mock date like the reference */}
+              <svg xmlns="http://www.w3.org/2000/svg" className="inline-block mr-1 h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
+              Today
+            </span>
+          )}
+        </div>
+
+        <h3 className="mb-4 text-base font-bold text-stone-800">
+          Checkpoint {activeSubtaskIndex + 1}: {subtask.title}
+        </h3>
+
+        {/* Mock perks/details list like the image reference */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-3 rounded-lg bg-stone-50 px-3 py-2 text-sm text-stone-600">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-stone-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 2l-2 2H5l-2-2m20 9l-2 2H5L3 11m20 9l-2 2H5l-2-2M12 2v20 M7 2v20 M17 2v20" /></svg>
+            Review Checkpoint Details
+          </div>
+
+          <div className="text-xs text-stone-500 bg-white border border-stone-100 p-3 rounded-lg leading-relaxed">
+            {subtask.description}
+          </div>
+
+          {isDone && (
+            <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 font-medium mt-3">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M12 8v4l3 3" /></svg>
+              {subtask.title} Phase Successfully Cleared!
+            </div>
+          )}
         </div>
 
         {/* Thinking / status text */}
-        {isCurrent && steps.length > 0 && (
-          <div className="mt-3 flex items-center gap-2 rounded-lg bg-white/60 px-3 py-2 text-xs text-stone-600">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#E5484D]" />
-            {steps[steps.length - 1].description || steps[steps.length - 1].detail}
+        {isCurrent && phaseSteps.length > 0 && (
+          <div className="mt-4 flex items-center gap-2 rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-600 border border-stone-200">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+            <span className="animate-pulse">{phaseSteps[phaseSteps.length - 1].description || phaseSteps[phaseSteps.length - 1].detail}</span>
           </div>
         )}
       </div>
 
       {/* Steps timeline */}
-      {steps.length > 0 && (
+      {phaseSteps.length > 0 && (
         <div className="rounded-xl border border-stone-200 bg-white p-4">
           <p className="mb-3 text-[10px] font-bold uppercase tracking-[.12em] text-stone-400">
             Agent&apos;s Thinking Process
           </p>
           <div className="space-y-0">
-            {steps.map((step, i) => (
+            {phaseSteps.map((step, i) => (
               <div key={i} className="flex gap-3">
                 {/* Timeline line */}
                 <div className="flex flex-col items-center">
@@ -1019,14 +855,14 @@ function CheckpointDetail({
                     className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
                     style={{
                       background:
-                        i === steps.length - 1 && isCurrent
-                          ? phase.color
+                        i === phaseSteps.length - 1 && isCurrent
+                          ? "#3b82f6"
                           : isDone
                             ? "#10b981"
                             : "#d6d3d1",
                     }}
                   />
-                  {i < steps.length - 1 && (
+                  {i < phaseSteps.length - 1 && (
                     <div
                       className="w-px flex-1"
                       style={{
@@ -1069,45 +905,41 @@ function CheckpointDetail({
       )}
 
       {/* Phase subtasks (for Plan / Execute) */}
-      {phaseSubtasks.length > 0 && (
-        <div className="rounded-xl border border-stone-200 bg-white p-4">
-          <p className="mb-3 text-[10px] font-bold uppercase tracking-[.12em] text-stone-400">
-            {phase.key === "planning" ? "Planned Steps" : "Execution Tasks"}
-          </p>
-          <div className="space-y-2">
-            {phaseSubtasks.map((sub) => (
-              <div
-                key={sub.id}
-                className="flex items-start gap-2 rounded-lg border border-stone-100 px-3 py-2.5 transition-colors hover:bg-stone-50"
-              >
-                <SubtaskStatusIcon status={sub.status} />
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium text-stone-700">
-                    {sub.title}
-                  </p>
-                  {sub.files_changed && sub.files_changed.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {sub.files_changed.slice(0, 3).map((f, j) => (
-                        <span
-                          key={j}
-                          className="rounded bg-stone-100 px-1 py-0.5 text-[9px] font-mono text-stone-500"
-                        >
-                          {f.split("/").pop()}
-                        </span>
-                      ))}
-                      {sub.files_changed.length > 3 && (
-                        <span className="text-[9px] text-stone-400">
-                          +{sub.files_changed.length - 3}
-                        </span>
-                      )}
-                    </div>
+      <div className="rounded-xl border border-stone-200 bg-white p-4 mt-4">
+        <p className="mb-3 text-[10px] font-bold uppercase tracking-[.12em] text-stone-400">
+          Subtask Scope
+        </p>
+        <div className="space-y-2">
+          <div
+            key={subtask.id}
+            className="flex items-start gap-2 rounded-lg border border-stone-100 px-3 py-2.5 transition-colors bg-stone-50"
+          >
+            <SubtaskStatusIcon status={subtask.status} />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-stone-700">
+                {subtask.title}
+              </p>
+              {subtask.files_changed && subtask.files_changed.length > 0 && (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {subtask.files_changed.slice(0, 3).map((f: string, j: number) => (
+                    <span
+                      key={j}
+                      className="rounded bg-white px-1 py-0.5 text-[9px] font-mono text-stone-500 border border-stone-100"
+                    >
+                      {f.split("/").pop()}
+                    </span>
+                  ))}
+                  {subtask.files_changed.length > 3 && (
+                    <span className="text-[9px] text-stone-400 font-medium">
+                      +{subtask.files_changed.length - 3} files
+                    </span>
                   )}
                 </div>
-              </div>
-            ))}
+              )}
+            </div>
           </div>
         </div>
-      )}
+      </div>
 
       {/* Empty state for pending phases */}
       {isPending && steps.length === 0 && (

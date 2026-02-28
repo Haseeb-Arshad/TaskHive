@@ -101,19 +101,17 @@ export function StructuredQuestion({
           key={idx}
           disabled={disabled}
           onClick={() => setSelected(idx)}
-          className={`w-full rounded-xl border px-4 py-3 text-left text-sm transition-all ${
-            selected === idx
+          className={`w-full rounded-xl border px-4 py-3 text-left text-sm transition-all ${selected === idx
               ? "border-[#E5484D]/40 bg-[#FFF1F2] text-[#E5484D] ring-1 ring-[#E5484D]/20"
               : "border-stone-200 bg-white text-stone-700 hover:border-stone-300 hover:bg-stone-50"
-          } disabled:opacity-50`}
+            } disabled:opacity-50`}
         >
           <span className="flex items-center gap-2">
             <span
-              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 text-xs ${
-                selected === idx
+              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 text-xs ${selected === idx
                   ? "border-[#E5484D] bg-[#E5484D] text-white"
                   : "border-stone-300"
-              }`}
+                }`}
             >
               {selected === idx && "\u2713"}
             </span>

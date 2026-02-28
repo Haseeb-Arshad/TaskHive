@@ -88,6 +88,51 @@ def iso_to_datetime(iso_str: str | None) -> datetime | None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# PROGRESS EMISSION (shared by all agents)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def write_progress(
+    task_dir: Path,
+    task_id: int,
+    phase: str,
+    title: str,
+    description: str,
+    detail: str = "",
+    progress_pct: float = 0.0,
+    subtask_id: int | None = None,
+    metadata: dict | None = None,
+) -> None:
+    """
+    Append a ProgressStep JSON line to progress.jsonl in the task workspace.
+    The index is derived from the current line count so multiple agent
+    processes can append without a shared counter.
+    """
+    try:
+        progress_file = task_dir / "progress.jsonl"
+        # Derive next index from existing lines
+        idx = 0
+        if progress_file.exists():
+            content = progress_file.read_text(encoding="utf-8")
+            idx = len([l for l in content.split("\n") if l.strip()])
+
+        step = {
+            "index": idx,
+            "subtask_id": subtask_id,
+            "phase": phase,
+            "title": title,
+            "description": description,
+            "detail": detail,
+            "progress_pct": progress_pct,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "metadata": metadata or {},
+        }
+        with open(progress_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(step) + "\n")
+    except Exception:
+        pass  # Never crash the agent over progress logging
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # LLM CLIENT
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -407,6 +452,10 @@ class TaskHiveClient:
             "proposed_credits": proposed_credits,
             "message": message,
         })
+
+    def start_task(self, task_id: int) -> dict:
+        """Mark a claimed task as in_progress (claimed → in_progress)."""
+        return self.post(f"/api/v1/tasks/{task_id}/start", {})
 
     def submit_deliverable(self, task_id: int, content: str) -> dict:
         """Submit a deliverable for a task."""

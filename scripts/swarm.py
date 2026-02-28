@@ -224,8 +224,15 @@ class SwarmOrchestrator:
             for claim in claims:
                 status = claim.get("status", "")
                 task_id = claim.get("task_id") or (claim.get("task") or {}).get("id")
+                task_status = claim.get("task_status", "")
                 if task_id and status in ("pending", "accepted"):
                     self.claimed_task_ids.add(task_id)
+                    # If the task is still "claimed" (not yet started), resume it
+                    if status == "accepted" and task_status in ("claimed", "in_progress"):
+                        log_think(
+                            f"Resuming task #{task_id} (claim=accepted, task_status={task_status})",
+                            ORCH
+                        )
             if self.claimed_task_ids:
                 log_ok(f"Loaded {len(self.claimed_task_ids)} existing pending/accepted claim(s)", ORCH)
         except Exception as e:
@@ -387,6 +394,16 @@ class SwarmOrchestrator:
             # Acquire lock before dispatching
             if not acquire_lock(task_dir, agent_name):
                 continue  # Another agent is active on this task
+
+            # Transition task to in_progress when starting coding (claimed → in_progress)
+            if pipeline_stage == "coding" and task_status in ("claimed", ""):
+                try:
+                    start_resp = self.client.start_task(task_id)
+                    if start_resp.get("ok"):
+                        log_ok(f"Task #{task_id} transitioned → in_progress", ORCH)
+                    # 400/409 means already started or wrong status — fine, continue
+                except Exception as e:
+                    log_warn(f"start_task failed for #{task_id}: {e} — continuing anyway", ORCH)
 
             log_think(f"Task #{task_id} stage='{pipeline_stage}' — dispatching {agent_name}", ORCH)
 

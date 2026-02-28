@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { submitEvaluationAnswers } from "@/lib/actions/tasks";
+import { submitEvaluationAnswers, acceptClaim } from "@/lib/actions/tasks";
 
 interface EvaluationQuestion {
   id: string;
@@ -34,9 +34,11 @@ interface RemarkWithEvaluation {
 export function EvaluationCard({
   remark,
   taskId,
+  relatedClaim,
 }: {
   remark: RemarkWithEvaluation;
   taskId: number;
+  relatedClaim?: any;
 }) {
   const { evaluation } = remark;
   const [selections, setSelections] = useState<Record<string, string>>({});
@@ -218,6 +220,11 @@ export function EvaluationCard({
             )}
           </button>
         )}
+
+        {/* ── Related Claim ─────────────────── */}
+        {relatedClaim && (
+          <RelatedClaimPanel claim={relatedClaim} taskId={taskId} />
+        )}
       </div>
     </div>
   );
@@ -242,17 +249,31 @@ function QuestionRenderer({
   const displayAnswer = q.answer || value;
 
   if (isAnswered) {
+    // Multi-select answers are comma-separated — display as tags
+    const answerParts = displayAnswer ? displayAnswer.split(", ").filter(Boolean) : [];
     return (
       <div>
         <p className="text-sm font-medium text-stone-700 mb-1.5">
           <span className="text-stone-400 mr-1.5">{index + 1}.</span>
           {q.text}
         </p>
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 flex items-center gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-4 w-4 text-emerald-600 shrink-0">
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-          <p className="text-sm text-emerald-800">{displayAnswer}</p>
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5">
+          <div className="flex items-start gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="mt-0.5 h-4 w-4 text-emerald-600 shrink-0">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            {answerParts.length > 1 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {answerParts.map((part, i) => (
+                  <span key={i} className="rounded-lg bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800">
+                    {part}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-emerald-800">{displayAnswer}</p>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -340,33 +361,52 @@ function McqInput({
   onChange: (v: string) => void;
   disabled: boolean;
 }) {
+  // Multi-select: value is a comma-separated list of selected options
+  const selected = value ? value.split(", ").filter(Boolean) : [];
+
+  function toggleOption(option: string) {
+    const next = selected.includes(option)
+      ? selected.filter((s) => s !== option)
+      : [...selected, option];
+    onChange(next.join(", "));
+  }
+
   return (
     <div className="space-y-1.5">
-      {options.map((option, idx) => (
-        <button
-          key={idx}
-          disabled={disabled}
-          onClick={() => onChange(option)}
-          className={`w-full rounded-xl border px-4 py-2.5 text-left text-sm transition-all ${
-            value === option
-              ? "border-[#E5484D]/40 bg-[#FFF1F2] text-[#E5484D] ring-1 ring-[#E5484D]/20"
-              : "border-stone-200 bg-white text-stone-700 hover:border-stone-300 hover:bg-stone-50"
-          } disabled:opacity-50`}
-        >
-          <span className="flex items-center gap-2.5">
-            <span
-              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 text-[10px] ${
-                value === option
-                  ? "border-[#E5484D] bg-[#E5484D] text-white"
-                  : "border-stone-300"
-              }`}
-            >
-              {value === option && "\u2713"}
+      {options.map((option, idx) => {
+        const isSelected = selected.includes(option);
+        return (
+          <button
+            key={idx}
+            disabled={disabled}
+            onClick={() => toggleOption(option)}
+            className={`w-full rounded-xl border px-4 py-2.5 text-left text-sm transition-all ${
+              isSelected
+                ? "border-[#E5484D]/40 bg-[#FFF1F2] text-[#E5484D] ring-1 ring-[#E5484D]/20"
+                : "border-stone-200 bg-white text-stone-700 hover:border-stone-300 hover:bg-stone-50"
+            } disabled:opacity-50`}
+          >
+            <span className="flex items-center gap-2.5">
+              {/* Square checkbox to signal multi-select */}
+              <span
+                className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 text-[10px] ${
+                  isSelected
+                    ? "border-[#E5484D] bg-[#E5484D] text-white"
+                    : "border-stone-300"
+                }`}
+              >
+                {isSelected && "\u2713"}
+              </span>
+              {option}
             </span>
-            {option}
-          </span>
-        </button>
-      ))}
+          </button>
+        );
+      })}
+      {selected.length > 0 && (
+        <p className="pt-0.5 text-[11px] text-stone-400">
+          {selected.length} selected — you can pick multiple
+        </p>
+      )}
     </div>
   );
 }
@@ -435,6 +475,105 @@ function ScaleInput({
           <span>{labels[0]}</span>
           <span>{labels[1]}</span>
         </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Related Claim Panel ─────────────────────────── */
+
+function RelatedClaimPanel({ claim, taskId }: { claim: any; taskId: number }) {
+  const [accepting, setAccepting] = useState(false);
+  const [accepted, setAccepted] = useState(claim.status === "accepted");
+
+  // Parse approach into steps if numbered list
+  const approachSteps: string[] = [];
+  if (claim.message) {
+    const lines = claim.message.split("\n").filter((l: string) => l.trim());
+    let isNumbered = false;
+    for (const line of lines) {
+      const match = line.match(/^\d+[\.\)]\s*(.+)/);
+      if (match) {
+        isNumbered = true;
+        approachSteps.push(match[1]);
+      }
+    }
+    if (!isNumbered) approachSteps.length = 0;
+  }
+
+  async function handleAccept() {
+    setAccepting(true);
+    const result = await acceptClaim(taskId, claim.id);
+    if (result.success) setAccepted(true);
+    setAccepting(false);
+  }
+
+  return (
+    <div className="mt-5 rounded-xl border border-stone-200 bg-stone-50/60 p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <div className="flex h-5 w-5 items-center justify-center rounded bg-stone-200">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3 text-stone-600">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+          </svg>
+        </div>
+        <p className="text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">
+          This Agent&apos;s Claim
+        </p>
+        <span className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+          accepted
+            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+            : claim.status === "rejected"
+            ? "border-red-200 bg-red-50 text-red-600"
+            : "border-amber-200 bg-amber-50 text-amber-700"
+        }`}>
+          {accepted ? "accepted" : claim.status}
+        </span>
+      </div>
+
+      {/* Credits */}
+      <div className="mb-3 flex items-center justify-between rounded-lg bg-white border border-stone-100 px-3 py-2">
+        <span className="text-xs text-stone-500">Proposed credits</span>
+        <span className="text-sm font-bold text-stone-800">{claim.proposed_credits}</span>
+      </div>
+
+      {/* Approach */}
+      {claim.message && (
+        <div className="mb-3">
+          <p className="mb-2 text-[10px] font-bold uppercase tracking-[.08em] text-stone-400">Implementation Approach</p>
+          {approachSteps.length > 0 ? (
+            <ol className="space-y-1.5">
+              {approachSteps.map((step: string, i: number) => (
+                <li key={i} className="flex gap-2 text-xs text-stone-600">
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-stone-200 text-[9px] font-bold text-stone-500">
+                    {i + 1}
+                  </span>
+                  <span className="leading-relaxed">{step}</span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="text-xs leading-relaxed text-stone-600">{claim.message}</p>
+          )}
+        </div>
+      )}
+
+      {/* Accept button */}
+      {!accepted && claim.status === "pending" && (
+        <button
+          disabled={accepting}
+          onClick={handleAccept}
+          className="mt-1 w-full rounded-lg bg-stone-900 py-2 text-xs font-semibold text-white transition-all hover:bg-stone-800 active:scale-[0.99] disabled:opacity-50"
+        >
+          {accepting ? (
+            <span className="flex items-center justify-center gap-1.5">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              Accepting...
+            </span>
+          ) : (
+            "Accept this Claim"
+          )}
+        </button>
       )}
     </div>
   );

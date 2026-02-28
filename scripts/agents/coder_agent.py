@@ -55,6 +55,53 @@ WORKSPACE_DIR = Path("f:/TaskHive/TaskHive/agent_works")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# PROGRESS EMITTER — writes ProgressStep JSON to progress.jsonl
+# ═══════════════════════════════════════════════════════════════════════════
+
+import time as _time
+
+_progress_index: dict[int, int] = {}  # task_id -> next step index
+
+
+def write_progress(
+    task_dir: Path,
+    task_id: int,
+    phase: str,
+    title: str,
+    description: str,
+    detail: str = "",
+    progress_pct: float = 0.0,
+    subtask_id: int | None = None,
+    metadata: dict | None = None,
+) -> None:
+    """Append a ProgressStep entry to progress.jsonl in the task workspace."""
+    import json as _json
+    import datetime as _dt
+
+    idx = _progress_index.get(task_id, 0)
+    _progress_index[task_id] = idx + 1
+
+    step = {
+        "index": idx,
+        "subtask_id": subtask_id,
+        "phase": phase,
+        "title": title,
+        "description": description,
+        "detail": detail,
+        "progress_pct": progress_pct,
+        "timestamp": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "metadata": metadata or {},
+    }
+
+    progress_file = task_dir / "progress.jsonl"
+    try:
+        with open(progress_file, "a", encoding="utf-8") as f:
+            f.write(_json.dumps(step) + "\n")
+    except Exception as e:
+        log_warn(f"Failed to write progress: {e}", AGENT_NAME)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # STEP 1: PLAN — Break the task into implementation steps
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -75,7 +122,17 @@ def plan_implementation(title: str, desc: str, reqs: str, past_errors: str = "")
         "Break the task into 3-6 ordered implementation steps. "
         "Each step should be a logical unit of work (e.g. scaffold, config, "
         "core logic, API routes, UI components, tests). "
-        "YOU MUST OUTPUT ONLY VALID JSON. NO CONVERSATIONAL TEXT."
+        "YOU MUST OUTPUT ONLY VALID JSON. NO CONVERSATIONAL TEXT.\n\n"
+        "CRITICAL — PROJECT TYPE RULES:\n"
+        "- DEFAULT to 'nextjs' for ALL tasks involving: websites, web apps, dashboards, "
+        "landing pages, portfolios, e-commerce, SaaS, tools with a UI, or any frontend.\n"
+        "- Use 'react' ONLY if the task explicitly says 'React without Next.js'.\n"
+        "- Use 'python' ONLY if the task is EXPLICITLY a CLI tool, data pipeline, "
+        "ML model, or backend-only API with NO web UI at all.\n"
+        "- Use 'node' ONLY for pure Node.js CLI scripts or backend-only services.\n"
+        "- When in doubt: choose 'nextjs'. It is ALWAYS the safe default.\n"
+        "- For 'nextjs' always use scaffold_command: "
+        "'npx create-next-app@latest ./ --typescript --tailwind --eslint --app --no-src-dir --import-alias @/* --yes'"
     )
 
     user = (
@@ -87,7 +144,7 @@ def plan_implementation(title: str, desc: str, reqs: str, past_errors: str = "")
         "Return a JSON object with:\n"
         '{\n'
         '  "project_type": "nextjs" | "react" | "node" | "python" | "static",\n'
-        '  "scaffold_command": "npx create-next-app@latest ./ --typescript --yes" or null,\n'
+        '  "scaffold_command": "npx create-next-app@latest ./ --typescript --tailwind --eslint --app --no-src-dir --import-alias @/* --yes" or null,\n'
         '  "steps": [\n'
         '    {\n'
         '      "step_number": 1,\n'
@@ -156,6 +213,91 @@ def generate_step_code(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# SKILL LOADER — Loads relevant skills based on task characteristics
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Map of keyword patterns → skill SKILL.md file names to include
+_SKILL_KEYWORD_MAP: list[tuple[list[str], list[str]]] = [
+    # Frontend / React / Next.js
+    (["react", "next", "nextjs", "frontend", "ui", "dashboard", "landing", "tailwind", "component"],
+     ["react-best-practices", "composition-patterns", "frontend-design", "senior-frontend"]),
+    # Backend / API
+    (["api", "backend", "server", "fastapi", "flask", "express", "rest", "graphql", "database", "sql", "postgres"],
+     ["senior-backend", "senior-architect"]),
+    # Testing
+    (["test", "tdd", "unit test", "e2e", "pytest", "jest", "playwright"],
+     ["tdd-guide", "senior-qa"]),
+    # DevOps / Deployment
+    (["deploy", "docker", "ci/cd", "kubernetes", "vercel", "aws", "cloud", "infrastructure"],
+     ["senior-devops", "vercel-deploy", "aws-solution-architect"]),
+    # Data / ML
+    (["data", "pipeline", "etl", "ml", "model", "training", "analytics", "spark"],
+     ["senior-data-engineer", "senior-ml-engineer"]),
+    # Security
+    (["auth", "authentication", "security", "oauth", "jwt", "encryption"],
+     ["senior-security"]),
+    # Full-stack (always include)
+    (["*"],
+     ["senior-fullstack", "code-reviewer"]),
+]
+
+
+def _load_skills_for_task(title: str, desc: str, reqs: str, plan: dict | None) -> list[str]:
+    """
+    Load relevant skill files from:
+      1. f:/TaskHive/TaskHive/skills/*.md  (TaskHive API skills)
+      2. f:/TaskHive/taskhive-api/.claude/skills/<name>/SKILL.md  (code quality skills)
+
+    Selects skills based on task keywords to avoid overloading the prompt.
+    """
+    task_text = f"{title} {desc} {reqs}".lower()
+    project_type = (plan or {}).get("project_type", "").lower()
+
+    # Determine which skill dirs to include
+    selected_skill_names: set[str] = set()
+    for keywords, skill_names in _SKILL_KEYWORD_MAP:
+        if keywords == ["*"] or any(kw in task_text or kw in project_type for kw in keywords):
+            selected_skill_names.update(skill_names)
+
+    contents: list[str] = []
+
+    # 1. Load TaskHive API skill files (all of them — they're small)
+    api_skills_dir = Path("f:/TaskHive/TaskHive/skills")
+    if api_skills_dir.exists():
+        for md_file in sorted(api_skills_dir.glob("*.md")):
+            try:
+                text = md_file.read_text(encoding="utf-8")
+                if text.strip():
+                    contents.append(f"### TaskHive API Skill: {md_file.stem}\n\n{text}")
+            except Exception:
+                pass
+
+    # 2. Load selected .claude/skills/ from taskhive-api repo
+    claude_skills_dir = Path("f:/TaskHive/taskhive-api/.claude/skills")
+    if claude_skills_dir.exists():
+        for skill_name in sorted(selected_skill_names):
+            skill_file = claude_skills_dir / skill_name / "SKILL.md"
+            if skill_file.exists():
+                try:
+                    text = skill_file.read_text(encoding="utf-8")
+                    # Trim to avoid token overflow — take first 1500 chars
+                    if len(text) > 1500:
+                        text = text[:1500] + "\n... [truncated for token limit]"
+                    if text.strip():
+                        contents.append(f"### Claude Skill: {skill_name}\n\n{text}")
+                except Exception:
+                    pass
+
+    total_chars = sum(len(c) for c in contents)
+    log_think(
+        f"Loaded {len(contents)} skill sections "
+        f"({total_chars // 1000}k chars): {', '.join(list(selected_skill_names)[:6])}",
+        AGENT_NAME,
+    )
+    return contents
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # MAIN PROCESS
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -196,6 +338,9 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
         log_think(f"Initializing Git repo for task #{task_id}...", AGENT_NAME)
         append_build_log(task_dir, f"=== Coder Agent starting for task #{task_id} ===")
 
+        write_progress(task_dir, task_id, "planning", "Setting up workspace",
+                       "Initializing git repository and workspace", "Creating task workspace...", 2.0)
+
         if not init_repo(task_dir):
             return {"action": "error", "error": "Failed to initialize git repo."}
 
@@ -210,6 +355,9 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
         # ── STEP 2: Plan (or resume from existing plan) ───────────────
         if not state.get("plan"):
             log_think(f"Planning implementation for task #{task_id}...", AGENT_NAME)
+            write_progress(task_dir, task_id, "planning", "Analyzing requirements",
+                           "Breaking task into implementation steps",
+                           f"Planning solution for: {title[:60]}", 5.0)
 
             plan = plan_implementation(title, desc, reqs, past_errors)
             if not plan or not plan.get("steps"):
@@ -233,6 +381,14 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
             if h:
                 append_commit_log(task_dir, h, "docs: add implementation plan")
                 log_ok(f"Committed implementation plan [{h}]", AGENT_NAME)
+
+            # Emit planning complete progress
+            total = len(plan.get("steps", []))
+            step_names = [s.get("description", f"Step {s.get('step_number', i+1)}") for i, s in enumerate(plan.get("steps", []))]
+            write_progress(task_dir, task_id, "planning", "Implementation plan ready",
+                           f"{total} steps planned: {' → '.join(step_names[:4])}{'...' if total > 4 else ''}",
+                           f"Project type: {plan.get('project_type', 'unknown')}, {total} implementation steps",
+                           10.0, metadata={"steps": total, "project_type": plan.get("project_type", "unknown")})
         else:
             plan = state["plan"]
             log_think(f"Resuming plan — {len(state.get('completed_steps', []))} of {state['total_steps']} steps done.", AGENT_NAME)
@@ -242,6 +398,9 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
         if scaffold_cmd and not state.get("scaffolded"):
             log_think(f"Scaffolding project: {scaffold_cmd}", AGENT_NAME)
             append_build_log(task_dir, f"Scaffold: {scaffold_cmd}")
+            write_progress(task_dir, task_id, "execution", "Scaffolding project",
+                           "Setting up project structure and boilerplate",
+                           f"Running: {scaffold_cmd[:80]}", 15.0)
 
             rc, out = run_shell_combined(scaffold_cmd, task_dir, timeout=120)
             log_command(task_dir, scaffold_cmd, rc, out)
@@ -261,6 +420,9 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
 
         # ── STEP 4: Generate code for remaining Architectural blueprint ─
         log_think("Requesting architectural blueprint enhancement...", AGENT_NAME)
+        write_progress(task_dir, task_id, "planning", "Enhancing architecture blueprint",
+                       "AI is generating detailed architectural specification",
+                       "Consulting Kimi K2 Thinking for deep technical blueprint...", 18.0)
 
         prompt = (
             f"You are the Coder Agent. We are building a solution for this task:\n"
@@ -271,15 +433,8 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
 
         enhanced_blueprint = kimi_enhance_prompt(prompt)
 
-        # Load skills
-        skills_dir = Path("f:/TaskHive/TaskHive/skills")
-        skill_contents = []
-        if skills_dir.exists():
-            for md_file in skills_dir.glob("*.md"):
-                try:
-                    skill_contents.append(md_file.read_text(encoding="utf-8"))
-                except Exception:
-                    pass
+        # Load skills — from the TaskHive skills dir AND from .claude/skills/ in both repos
+        skill_contents = _load_skills_for_task(title, desc, reqs, plan)
 
         # ── STEP 5: Execute each step ─────────────────────────────────
         steps = plan.get("steps", [])
@@ -300,6 +455,15 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
 
             log_think(f"Step {step_num}/{len(steps)}: {step_desc}", AGENT_NAME)
             append_build_log(task_dir, f"Step {step_num}: {step_desc}")
+
+            # Emit progress for this step starting
+            step_pct = 20.0 + (step_num - 1) / max(len(steps), 1) * 60.0
+            write_progress(task_dir, task_id, "execution",
+                           f"Step {step_num}/{len(steps)}: {step_desc}",
+                           f"Generating code for: {step_desc}",
+                           f"Writing files for step {step_num}...",
+                           step_pct, subtask_id=step_num,
+                           metadata={"step": step_num, "total_steps": len(steps)})
 
             # Generate code for this step
             files = generate_step_code(
@@ -333,6 +497,15 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
                     push_to_remote(task_dir)
                     log_ok("  Pushed to GitHub", AGENT_NAME)
 
+            # Emit step completed progress
+            step_pct_done = 20.0 + step_num / max(len(steps), 1) * 60.0
+            write_progress(task_dir, task_id, "execution",
+                           f"Step {step_num} complete: {step_desc}",
+                           f"Wrote {len(files_written)} files and committed",
+                           f"Committed: {commit_msg}",
+                           step_pct_done, subtask_id=step_num,
+                           metadata={"files_written": files_written[:5], "commit": h or ""})
+
             # Track completed step
             state["current_step"] = step_num
             state["completed_steps"].append({
@@ -347,16 +520,30 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
         # ── STEP 6: Install dependencies ──────────────────────────────
         if (task_dir / "package.json").exists():
             log_think("Installing npm dependencies...", AGENT_NAME)
+            write_progress(task_dir, task_id, "review", "Installing dependencies",
+                           "Running npm install to install project dependencies",
+                           "npm install running...", 83.0)
             rc, out = run_npm_install(task_dir)
             log_command(task_dir, "npm install", rc, out)
             if rc == 0:
                 log_ok("npm install succeeded.", AGENT_NAME)
+                write_progress(task_dir, task_id, "review", "Dependencies installed",
+                               "npm install completed successfully",
+                               "All packages installed", 86.0)
             else:
                 log_warn(f"npm install failed (rc={rc})", AGENT_NAME)
 
         # ── STEP 7: Final push ────────────────────────────────────────
+        write_progress(task_dir, task_id, "delivery", "Pushing code",
+                       "Pushing all commits to GitHub repository",
+                       f"Pushing to {state.get('repo_url', 'GitHub')}...", 90.0)
         push_to_remote(task_dir)
         log_ok(f"All code pushed to {state.get('repo_url', 'GitHub')}", AGENT_NAME)
+
+        write_progress(task_dir, task_id, "delivery", "Code complete",
+                       "All implementation steps completed and pushed",
+                       f"Repository: {state.get('repo_url', 'local git')}",
+                       95.0, metadata={"repo_url": state.get("repo_url", "")})
 
         # ── Transition to testing ─────────────────────────────────────
         state["status"] = "testing"

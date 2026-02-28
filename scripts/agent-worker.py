@@ -225,6 +225,10 @@ class TaskHiveClient:
             "message": message,
         })
 
+    def start_task(self, task_id: int) -> dict:
+        """Mark a claimed task as in_progress (claimed → in_progress)."""
+        return self.post(f"/api/v1/tasks/{task_id}/start", {})
+
     def submit_deliverable(self, task_id: int, content: str) -> dict:
         """Submit a deliverable for a task."""
         return self.post(f"/api/v1/tasks/{task_id}/deliverables", {
@@ -262,6 +266,22 @@ class TaskHiveClient:
                 self.agent_name = profile.get("name")
                 return profile
         return None
+
+    def get_task_messages(self, task_id: int) -> list[dict]:
+        """Fetch conversation messages for a task (poster replies to agent feedback)."""
+        resp = self.get(f"/api/v1/tasks/{task_id}/messages")
+        if resp.get("ok"):
+            data = resp.get("data", [])
+            return data if isinstance(data, list) else []
+        return []
+
+    def post_remark(self, task_id: int, remark) -> dict:
+        """Post a feedback remark on a task."""
+        if isinstance(remark, str):
+            payload = {"remark": remark}
+        else:
+            payload = remark
+        return self.post(f"/api/v1/tasks/{task_id}/remarks", payload)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -317,7 +337,7 @@ class AgentBrain:
                 "- NEVER repeat questions already answered\n"
                 "- NO long introductions, no chatty preambles, no enthusiasm filler\n\n"
                 "QUESTION TYPES (use sparingly for follow-ups, only if needed):\n"
-                "  'multiple_choice' — concrete decisions with 3-4 options\n"
+                "  'multiple_choice' — the poster can SELECT MULTIPLE options (checkboxes); use for 'which of these apply?' style questions with 3-6 options\n"
                 "  'yes_no' — quick feature toggles\n"
                 "  'text_input' — open-ended details (include placeholder)\n"
                 "  'scale' — priorities on a spectrum (include scale_min, scale_max, scale_labels)\n"
@@ -336,13 +356,13 @@ class AgentBrain:
                 "- NO chatty greetings, NO 'Hey!', NO 'I took a look at', NO preambles\n"
                 "- NO restating the task title back to the poster\n\n"
                 "EVALUATION QUESTIONS — focus here. You have 4 question types:\n"
-                "  1. 'multiple_choice' — For concrete decisions (tech stack, feature priorities). "
-                "Include 3-4 specific options.\n"
-                "  2. 'yes_no' — For quick feature toggles (Need auth? Want dark mode?).\n"
+                "  1. 'multiple_choice' — MULTI-SELECT (poster can tick several options). Use for 'which features do you want?' or 'which of these apply?' with 3-6 options. Great for feature lists, tech preferences, or requirements.\n"
+                "  2. 'yes_no' — For quick binary decisions (Need auth? Want dark mode?).\n"
                 "  3. 'text_input' — For open-ended details (include a helpful placeholder).\n"
                 "  4. 'scale' — For priorities on a spectrum (include scale_min, scale_max 1-5, scale_labels).\n\n"
                 "Use 3-5 questions total. Mix types. Be specific, never generic.\n"
-                "NEVER ask questions the description already answers."
+                "NEVER ask questions the description already answers.\n"
+                "For 'multiple_choice', phrase questions as 'Which of the following...' or 'Select all that apply:' to hint at multi-select."
             )
 
         result = llm_json(
@@ -374,7 +394,7 @@ class AgentBrain:
             '  },\n'
             '  "feedback": "ONE sentence stating intent, e.g. \'Ready to build this — just need a few details:\' NO greetings, NO restating the task title",\n'
             '  "reason": "internal reason",\n'
-            '  "approach": "step-by-step plan"\n'
+            '  "approach": "Detailed step-by-step plan: \'1. Set up project structure with X. 2. Implement Y using Z. 3. Add tests for A. 4. Deploy to B.\' Be concrete and technical."\n'
             '}'
         )
 
@@ -438,68 +458,81 @@ class AgentBrain:
                 valid_questions.append(q)
             eval_obj["questions"] = valid_questions
 
-        # Ensure feedback is engaging
+        # Ensure feedback is concise and direct (no chatty preambles)
         feedback = result.get("feedback", "")
-        if not feedback or len(feedback) < 30:
-            title = task.get("title", "your project")
+        if not feedback or len(feedback) < 10:
             if has_answered_questions:
-                result["feedback"] = (
-                    f"Thanks for answering my questions about \"{title}\"! "
-                    f"Your responses gave me a much clearer picture of what you're after. "
-                    f"I'm putting together my approach and should be ready to get started."
-                )
+                result["feedback"] = "Got it — ready to start once the claim is accepted."
             else:
-                result["feedback"] = (
-                    f"Hey! I took a look at \"{title}\" and I'm interested. "
-                    f"I've got a few quick questions below that'll help me understand exactly what you're after "
-                    f"so I can hit the ground running. Should only take a minute!"
-                )
+                result["feedback"] = "I can build this — a few quick questions before I dive in:"
 
         return result
 
     def generate_claim_message(self, task: dict, approach: str) -> str:
-        """Generate a compelling claim message."""
+        """Generate a detailed, structured claim message with step-by-step approach."""
         return llm_call(
-            "Write a brief, professional claim message for a freelance task. "
-            "1-3 sentences explaining why you're the right agent for this task.",
-            f"Task: {task.get('title')}\nMy approach: {approach}\n"
+            "Write a professional, structured claim message for a freelance task on TaskHive. "
+            "Format it as a numbered step-by-step implementation plan (4-6 steps). "
+            "Each step should be concrete and specific to this task. "
+            "Start with a single sentence summarising your qualifications, then list the numbered steps. "
+            "NEVER use vague filler like 'I will deliver high-quality work'. Be technical and specific.",
+            f"Task: {task.get('title')}\n"
+            f"Description: {(task.get('description') or '')[:400]}\n"
+            f"Requirements: {(task.get('requirements') or '')[:300]}\n"
+            f"Planned approach: {approach}\n"
             f"My skills: {', '.join(self.capabilities)}\n\n"
+            "Write the claim message with numbered steps. Example format:\n"
+            "I specialise in [relevant skill] and will deliver this efficiently.\n"
+            "1. [Specific first step]\n"
+            "2. [Specific second step]\n"
+            "3. [Specific third step]\n"
+            "4. [Testing/QA step]\n"
+            "5. [Delivery step]\n\n"
             "Write ONLY the claim message, nothing else.",
-            max_tokens=200,
+            max_tokens=400,
         ).strip()
 
     def generate_deliverable(self, task: dict) -> str:
-        """ACT: Generate the actual deliverable content."""
+        """ACT: Generate a plain-English delivery summary the client can understand."""
         title = task.get("title") or ""
         desc = task.get("description") or ""
         reqs = task.get("requirements") or ""
 
         return llm_call(
-            "You are a senior developer delivering high-quality work. "
-            "Write clean, production-ready code with proper documentation. "
-            "Include all necessary imports, type hints, docstrings, and edge case handling.",
+            "You are a professional software delivery agent writing a delivery summary for a client. "
+            "You have completed the coding work. Now explain what was built in plain, friendly English. "
+            "DO NOT include any code, code blocks, commands, or technical jargon. "
+            "Write as if you are explaining to a business owner what they now have. "
+            "Structure: a short 2–3 sentence overview of what was built, then a bullet list "
+            "of the key features and functionality that is now available, then a brief closing note "
+            "on how to access or use it (e.g. the live URL or repository — if known).",
 
-            f"Complete this task and deliver the full implementation:\n\n"
-            f"## Task: {title}\n\n"
-            f"## Description:\n{desc}\n\n"
-            f"## Requirements:\n{reqs}\n\n"
-            "Deliver the complete solution with code and brief explanation.",
-            max_tokens=3000,
+            f"Task: {title}\n\n"
+            f"Description:\n{desc}\n\n"
+            f"Requirements:\n{reqs}\n\n"
+            "Write the delivery summary now. No code, no commands — just clear English.",
+            max_tokens=600,
         )
 
     def handle_revision(self, task: dict, deliverable: dict, feedback: str) -> str:
-        """Handle a revision request by improving the deliverable."""
-        return llm_call(
-            "You are a senior developer revising work based on feedback. "
-            "Address ALL feedback points and improve the overall quality.",
+        """Handle a revision request, rewriting the delivery summary based on feedback."""
+        title = task.get("title") or ""
+        desc = (task.get("description") or "")[:500]
+        reqs = (task.get("requirements") or "")[:300]
+        prev = (deliverable.get("content") or "")[:2000]
 
-            f"## Original Task: {task.get('title')}\n"
-            f"## Description: {(task.get('description') or '')[:500]}\n"
-            f"## Requirements: {(task.get('requirements') or '')[:300]}\n\n"
-            f"## Previous Deliverable:\n{deliverable.get('content', '')[:2000]}\n\n"
-            f"## Revision Feedback:\n{feedback}\n\n"
-            "Deliver the improved, complete solution addressing all feedback.",
-            max_tokens=3000,
+        return llm_call(
+            "You are a professional software delivery agent revising your delivery summary based on client feedback. "
+            "Address every point in the feedback. DO NOT include any code, code blocks, or commands. "
+            "Write the revised summary in plain, friendly English that a business owner can understand.",
+
+            f"Task: {title}\n"
+            f"Description: {desc}\n"
+            f"Requirements: {reqs}\n\n"
+            f"Previous delivery summary:\n{prev}\n\n"
+            f"Client feedback:\n{feedback}\n\n"
+            "Write the improved delivery summary now. No code — plain English only.",
+            max_tokens=600,
         )
 
 
@@ -568,17 +601,18 @@ class AutonomousWorkerAgent:
         # Step 1: Check for tasks needing revision (in_progress tasks assigned to us)
         self._check_revisions()
 
-        # Step 2: Check if we have capacity for new tasks
+        # Step 2: Work on accepted claims — generate and submit deliverables
+        self._work_on_claimed_tasks()
+
+        # Step 3: Check if we have capacity for new tasks
         active_claims = self.client.get_my_claims("accepted")
         active_count = len(active_claims)
 
         if active_count >= MAX_CONCURRENT_TASKS:
-            log_wait(f"Working on {active_count} task(s), at capacity")
-            # Check if any accepted claims need deliverables
-            self._work_on_claimed_tasks()
+            log_wait(f"Working on {active_count} task(s), at capacity — skipping new task browse")
             return
 
-        # Step 3: Browse for new open tasks
+        # Step 4: Browse for new open tasks
         log_think("Browsing for open tasks...")
         open_tasks = self.client.browse_tasks("open", limit=20) # Balanced limit
 
@@ -781,6 +815,15 @@ class AutonomousWorkerAgent:
             log_think(f"  Task #{task_id}: status={status}")
 
             if status in ("claimed", "in_progress", "accepted"):
+                # Transition claimed → in_progress so the frontend stepper advances
+                if status == "claimed":
+                    try:
+                        start_resp = self.client.start_task(task_id)
+                        if start_resp.get("ok"):
+                            log_ok(f"Task #{task_id} transitioned → in_progress")
+                    except Exception:
+                        pass  # Non-fatal; proceed regardless
+
                 # Get full task details
                 try:
                     task = self.client.get_task(task_id)

@@ -30,6 +30,7 @@ from agents.base_agent import (
     log_ok,
     log_think,
     log_warn,
+    write_progress,
 )
 from agents.git_ops import commit_step, push_to_remote, append_commit_log
 from agents.shell_executor import (
@@ -61,6 +62,9 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
 
         test_command = state.get("test_command")
         append_build_log(task_dir, f"=== Tester Agent starting for task #{task_id} ===")
+        write_progress(task_dir, task_id, "testing", "Testing",
+                       "Running automated tests to validate the implementation",
+                       "Tester agent initializing...", 82.0, subtask_id=100)
 
         if not test_command:
             log_warn("No test command provided by Coder. Assuming success.", AGENT_NAME)
@@ -70,6 +74,9 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
             return {"action": "tested", "passed": True}
 
         # ── Auto-install dependencies ─────────────────────────────────
+        write_progress(task_dir, task_id, "testing", "Installing dependencies",
+                       "Installing project dependencies before running tests",
+                       "", 84.0, subtask_id=100)
         if (task_dir / "package.json").exists() and not (task_dir / "node_modules").exists():
             log_think("Installing npm dependencies...", AGENT_NAME)
             rc, out = run_npm_install(task_dir)
@@ -128,6 +135,9 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
                     append_build_log(task_dir, "Build PASSED ✅")
 
         # ── Run tests ─────────────────────────────────────────────────
+        write_progress(task_dir, task_id, "testing", "Running tests",
+                       f"Executing: {test_command}",
+                       "Waiting for test results...", 88.0, subtask_id=100)
         log_think(f"Running tests: `{test_command}` in {task_dir}", AGENT_NAME)
         append_build_log(task_dir, f"Test command: {test_command}")
 
@@ -158,6 +168,10 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
         # ── Commit test results ───────────────────────────────────────
         if rc == 0:
             log_ok("Tests PASSED! Advancing to deployment.", AGENT_NAME)
+            write_progress(task_dir, task_id, "testing", "Tests passed",
+                           "All tests passed — advancing to deployment",
+                           output[:500] if output else "", 95.0, subtask_id=100,
+                           metadata={"exit_code": rc})
             state["status"] = "deploying"
             state["test_errors"] = ""
 
@@ -170,6 +184,10 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
         else:
             limited_out = output[-2000:] if len(output) > 2000 else output
             log_warn(f"Tests FAILED (exit code {rc}). Looping back to Coder.", AGENT_NAME)
+            write_progress(task_dir, task_id, "testing", "Tests failed — retrying",
+                           "Tests failed, returning to Coder agent to fix errors",
+                           limited_out[:500], 90.0, subtask_id=100,
+                           metadata={"exit_code": rc})
 
             state["status"] = "coding"  # Kick back to Coder
             state["test_errors"] = f"Command: {test_command}\nExit code: {rc}\nOutput:\n{limited_out}"

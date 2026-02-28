@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 export interface ProgressStep {
   index: number;
+  subtask_id?: number | null;
   phase: string;
   title: string;
   description: string;
