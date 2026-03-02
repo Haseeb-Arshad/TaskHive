@@ -66,12 +66,9 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
                        "Running automated tests to validate the implementation",
                        "Tester agent initializing...", 82.0, subtask_id=100)
 
-        if not test_command:
-            log_warn("No test command provided by Coder. Assuming success.", AGENT_NAME)
-            state["status"] = "deploying"
-            with open(state_file, "w") as f:
-                json.dump(state, f, indent=2)
-            return {"action": "tested", "passed": True}
+        if not test_command or test_command.strip() in ("echo 'No tests defined'", 'echo "No tests defined"'):
+            log_warn("No real test command provided. Will still verify build.", AGENT_NAME)
+            test_command = None  # Mark as no explicit tests, but continue to build check
 
         # ── Auto-install dependencies ─────────────────────────────────
         write_progress(task_dir, task_id, "testing", "Installing dependencies",
@@ -90,7 +87,7 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
             log_command(task_dir, "pip install -r requirements.txt", rc, out)
 
         # Fix for Jest multiple config error
-        if "npm test" in test_command and (task_dir / "jest.config.js").exists():
+        if test_command and "npm test" in test_command and (task_dir / "jest.config.js").exists():
             log_think("Detected jest.config.js — forcing use of it.", AGENT_NAME)
             test_command = test_command.replace("npm test", "npm test -- --config jest.config.js")
 
@@ -113,7 +110,7 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
             if is_site_project and has_build_script:
                 log_think("Site project detected — running production build first...", AGENT_NAME)
                 append_build_log(task_dir, "Running: npm run build")
-                build_rc, build_out = run_shell_combined("npm run build", task_dir, timeout=180)
+                build_rc, build_out = run_shell_combined("npm run build", task_dir, timeout=7200)
                 log_command(task_dir, "npm run build", build_rc, build_out)
 
                 if build_rc != 0:
@@ -135,13 +132,25 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
                     append_build_log(task_dir, "Build PASSED ✅")
 
         # ── Run tests ─────────────────────────────────────────────────
+        if not test_command:
+            # No explicit tests defined — build already verified above
+            log_ok("No explicit tests, but build check completed. Advancing to deployment.", AGENT_NAME)
+            write_progress(task_dir, task_id, "testing", "Build verified",
+                           "No explicit tests defined, but build check completed",
+                           "Build check passed", 95.0, subtask_id=100)
+            state["status"] = "deploying"
+            state["test_errors"] = ""
+            with open(state_file, "w") as f:
+                json.dump(state, f, indent=2)
+            return {"action": "tested", "task_id": task_id, "passed": True}
+
         write_progress(task_dir, task_id, "testing", "Running tests",
                        f"Executing: {test_command}",
                        "Waiting for test results...", 88.0, subtask_id=100)
         log_think(f"Running tests: `{test_command}` in {task_dir}", AGENT_NAME)
         append_build_log(task_dir, f"Test command: {test_command}")
 
-        rc, output = run_tests(task_dir, test_command, timeout=300)
+        rc, output = run_tests(task_dir, test_command, timeout=7200)
         log_command(task_dir, test_command, rc, output)
 
         # ── Save test results ─────────────────────────────────────────

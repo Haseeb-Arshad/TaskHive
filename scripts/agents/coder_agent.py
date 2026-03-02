@@ -105,7 +105,7 @@ def write_progress(
 # STEP 1: PLAN — Break the task into implementation steps
 # ═══════════════════════════════════════════════════════════════════════════
 
-def plan_implementation(title: str, desc: str, reqs: str, past_errors: str = "") -> list[dict]:
+def plan_implementation(title: str, desc: str, reqs: str, past_errors: str = "", poster_context: str = "", complexity: str = "high") -> list[dict]:
     """
     Ask the LLM to break the task into implementation steps.
     Each step has a description and list of files to generate.
@@ -117,22 +117,35 @@ def plan_implementation(title: str, desc: str, reqs: str, past_errors: str = "")
             "You must account for this in your plan and fix the issue.\n"
         )
 
+    poster_section = ""
+    if poster_context:
+        poster_section = f"\n\nPoster's Requirements & Answers:\n{poster_context}\n"
+
     system = (
         "You are a Senior Software Architect planning an implementation. "
         "Break the task into 3-6 ordered implementation steps. "
         "Each step should be a logical unit of work (e.g. scaffold, config, "
         "core logic, API routes, UI components, tests). "
         "YOU MUST OUTPUT ONLY VALID JSON. NO CONVERSATIONAL TEXT.\n\n"
-        "CRITICAL — PROJECT TYPE RULES:\n"
-        "- DEFAULT to 'nextjs' for ALL tasks involving: websites, web apps, dashboards, "
-        "landing pages, portfolios, e-commerce, SaaS, tools with a UI, or any frontend.\n"
-        "- Use 'react' ONLY if the task explicitly says 'React without Next.js'.\n"
-        "- Use 'python' ONLY if the task is EXPLICITLY a CLI tool, data pipeline, "
-        "ML model, or backend-only API with NO web UI at all.\n"
-        "- Use 'node' ONLY for pure Node.js CLI scripts or backend-only services.\n"
+        "CRITICAL — PROJECT TYPE RULES (STRICTLY ENFORCED):\n"
+        "- You MUST ONLY use JavaScript/TypeScript frontend or fullstack frameworks.\n"
+        "- DEFAULT to 'nextjs' for ALL tasks: websites, web apps, dashboards, "
+        "landing pages, portfolios, e-commerce, SaaS, tools with a UI, APIs, backends — everything.\n"
+        "- Use 'react' ONLY if the task explicitly says 'React without Next.js' or 'Vite + React'.\n"
+        "- Use 'vite' ONLY if the task explicitly specifies Vite as the build tool.\n"
+        "- Use 'static' ONLY for pure HTML/CSS/JS with absolutely no framework needed.\n"
+        "- NEVER use 'python' — Python is FORBIDDEN as a project type.\n"
+        "- NEVER use 'node' standalone — if backend is needed, use Next.js API routes.\n"
+        "- Backend logic MUST live inside the framework (Next.js API routes, server actions).\n"
+        "- NO external database connections — use in-memory state or localStorage only.\n"
         "- When in doubt: choose 'nextjs'. It is ALWAYS the safe default.\n"
         "- For 'nextjs' always use scaffold_command: "
-        "'npx create-next-app@latest ./ --typescript --tailwind --eslint --app --no-src-dir --import-alias @/* --yes'"
+        "'npx create-next-app@latest ./ --typescript --tailwind --eslint --app --no-src-dir --import-alias @/* --yes --force'\n\n"
+        "CRITICAL — FILE LIST RULES:\n"
+        "- Every step MUST list at least 2 files to create.\n"
+        "- Each file must have a 'path' (relative) and 'description' (what it does).\n"
+        "- Be specific: e.g. 'app/page.tsx', 'components/Hero.tsx', 'app/api/data/route.ts'.\n"
+        "- NEVER leave the files array empty."
     )
 
     user = (
@@ -140,18 +153,20 @@ def plan_implementation(title: str, desc: str, reqs: str, past_errors: str = "")
         f"Title: {title}\n"
         f"Description: {desc}\n"
         f"Requirements: {reqs}\n"
+        f"{poster_section}"
         f"{error_context}\n"
         "Return a JSON object with:\n"
         '{\n'
-        '  "project_type": "nextjs" | "react" | "node" | "python" | "static",\n'
-        '  "scaffold_command": "npx create-next-app@latest ./ --typescript --tailwind --eslint --app --no-src-dir --import-alias @/* --yes" or null,\n'
+        '  "project_type": "nextjs" | "react" | "vite" | "static",\n'
+        '  "scaffold_command": "npx create-next-app@latest ./ --typescript --tailwind --eslint --app --no-src-dir --import-alias @/* --yes --force" or null,\n'
         '  "steps": [\n'
         '    {\n'
         '      "step_number": 1,\n'
         '      "description": "Set up project configuration",\n'
         '      "commit_message": "chore: add project configuration",\n'
         '      "files": [\n'
-        '        {"path": "tsconfig.json", "description": "TypeScript config"}\n'
+        '        {"path": "tsconfig.json", "description": "TypeScript config"},\n'
+        '        {"path": "app/layout.tsx", "description": "Root layout component"}\n'
         '      ]\n'
         '    }\n'
         '  ],\n'
@@ -159,7 +174,30 @@ def plan_implementation(title: str, desc: str, reqs: str, past_errors: str = "")
         '}\n'
     )
 
-    result = llm_json(system, user, max_tokens=2048, complexity="routine")
+    result = llm_json(system, user, max_tokens=2048, complexity=complexity)
+
+    # ── Post-processing: enforce project type and scaffold ──
+    if isinstance(result, dict):
+        project_type = (result.get("project_type") or "").lower().strip()
+        # Force nextjs for forbidden types
+        if project_type in ("node", "python", "express", "flask", "django", "") or project_type not in ("nextjs", "react", "vite", "static"):
+            log_warn(f"Plan used forbidden project_type '{project_type}' — forcing 'nextjs'", AGENT_NAME)
+            result["project_type"] = "nextjs"
+            result["scaffold_command"] = "npx create-next-app@latest ./ --typescript --tailwind --eslint --app --no-src-dir --import-alias @/* --yes --force"
+
+        # Ensure scaffold command exists for nextjs
+        if result.get("project_type") == "nextjs" and not result.get("scaffold_command"):
+            result["scaffold_command"] = "npx create-next-app@latest ./ --typescript --tailwind --eslint --app --no-src-dir --import-alias @/* --yes --force"
+
+        # Ensure steps have file lists
+        for step in result.get("steps", []):
+            if not step.get("files"):
+                step_desc = step.get("description", "implementation")
+                step["files"] = [
+                    {"path": f"app/page.tsx", "description": f"Main page for: {step_desc}"},
+                    {"path": f"components/{step_desc.replace(' ', '')}.tsx", "description": f"Component for: {step_desc}"},
+                ]
+
     return result
 
 
@@ -171,10 +209,14 @@ def generate_step_code(
     blueprint: str,
     existing_files: list[str],
     skill_contents: list[str],
+    poster_context: str = "",
+    task_dir: Path = None,
+    complexity: str = "high",
 ) -> list[dict]:
     """
     Generate code for a single implementation step.
     Returns a list of {path, content} dicts.
+    Retries once if all files come back empty.
     """
     files_desc = "\n".join(
         f"  - {f['path']}: {f.get('description', '')}"
@@ -192,7 +234,9 @@ def generate_step_code(
         "You are a Senior Fullstack Developer producing production-ready code. "
         "YOU MUST OUTPUT ONLY VALID JSON. NO CONVERSATIONAL TEXT.\n"
         "Your response must be a JSON object with a single 'files' array.\n"
-        "Each file has 'path' (relative) and 'content' (the full source code)."
+        "Each file has 'path' (relative) and 'content' (the full source code).\n"
+        "CRITICAL: Every file MUST have real, working code in 'content'. "
+        "NEVER return empty content or placeholder comments. Write complete, functional code."
     )
     if skill_contents:
         system += "\n\nYOU MUST STRICTLY FOLLOW THESE CAPABILITY SKILLS:\n\n" + "\n\n---\n\n".join(skill_contents)
@@ -202,14 +246,62 @@ def generate_step_code(
         f"Overall Task: {title}\n"
         f"Description: {desc}\n"
         f"Requirements: {reqs}\n\n"
+    )
+    if poster_context:
+        user += f"Poster's Requirements & Answers:\n{poster_context}\n\n"
+    user += (
         f"Architectural Blueprint:\n{blueprint[:3000]}\n\n"
         f"{existing_context}\n"
         f"Files to create in THIS step:\n{files_desc}\n\n"
-        "Return JSON: {\"files\": [{\"path\": \"...\", \"content\": \"...\"}]}"
+        "Return JSON: {\"files\": [{\"path\": \"...\", \"content\": \"...\"}]}\n"
+        "IMPORTANT: Each file's 'content' MUST be complete, working source code. No placeholders."
     )
 
-    result = llm_json(system, user, max_tokens=16384, complexity="high")
-    return result.get("files", []) if isinstance(result, dict) else []
+    # First attempt
+    result = llm_json(system, user, max_tokens=16384, complexity=complexity)
+    files = result.get("files", []) if isinstance(result, dict) else []
+    
+    if "_raw" in result and not files and task_dir:
+        debug_file = task_dir / f".llm_debug_step_{step.get('step_number')}.txt"
+        debug_file.write_text(result["_raw"], encoding="utf-8")
+        log_warn(f"LLM produced invalid JSON. Saved raw output to {debug_file.name}", AGENT_NAME)
+
+    # Validate: filter out files with empty or trivial content
+    valid_files = [f for f in files if isinstance(f, dict) and f.get("path") and f.get("content", "").strip() and len(f.get("content", "").strip()) > 20]
+
+    if not valid_files and files:
+        # Retry once with more explicit instruction and higher intelligence
+        log_warn(f"Step {step.get('step_number')}: Got {len(files)} files but all had empty/trivial content. Retrying with EXTREME model complexity...", AGENT_NAME)
+        retry_user = user + (
+            "\n\nWARNING: Your previous response had empty file contents. "
+            "You MUST write complete, working source code for EVERY file. "
+            "Do NOT return empty strings or placeholder comments."
+        )
+        result = llm_json(system, retry_user, max_tokens=16384, complexity="extreme")
+        files = result.get("files", []) if isinstance(result, dict) else []
+        
+        if "_raw" in result and not files and task_dir:
+            debug_file = task_dir / f".llm_debug_step_{step.get('step_number')}_retry.txt"
+            debug_file.write_text(result["_raw"], encoding="utf-8")
+            log_warn(f"LLM produced invalid JSON on retry. Saved raw output to {debug_file.name}", AGENT_NAME)
+            
+        valid_files = [f for f in files if isinstance(f, dict) and f.get("path") and f.get("content", "").strip() and len(f.get("content", "").strip()) > 20]
+
+    if not valid_files and not files and "_raw" in result:
+        # If it failed mapping JSON directly twice, try using Sonnet one last time explicitly with error context
+        log_warn(f"Step {step.get('step_number')}: JSON extraction failed. Last resort retry with Claude Sonnet...", AGENT_NAME)
+        last_resort_user = user + (
+            f"\n\nERROR: Your previous response was invalid JSON. Ensure all properties are properly quoted and escape characters are valid:\n"
+            f"```\n{result.get('_raw', '')[:1000]}\n```"
+        )
+        result = llm_json(system, last_resort_user, max_tokens=16384, complexity="extreme")
+        files = result.get("files", []) if isinstance(result, dict) else []
+        if "_raw" in result and not files and task_dir:
+            debug_file = task_dir / f".llm_debug_step_{step.get('step_number')}_final.txt"
+            debug_file.write_text(result["_raw"], encoding="utf-8")
+        valid_files = [f for f in files if isinstance(f, dict) and f.get("path") and f.get("content", "").strip() and len(f.get("content", "").strip()) > 20]
+
+    return valid_files
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -334,6 +426,45 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
         reqs = task.get("requirements") or ""
         past_errors = state.get("test_errors", "")
 
+        # ── Intelligence Escalation ──────────────────────────────────
+        # Escalate complexity if we've failed multiple times
+        plan_complexity = "high"
+        if state.get("iterations", 0) >= 2:
+            log_warn(f"Escalating agent intelligence to 'extreme' due to {state['iterations']} previous failures", AGENT_NAME)
+            plan_complexity = "extreme"
+
+        # ── Fetch poster conversation context ────────────────────────
+        poster_context = ""
+        try:
+            messages = client.get_task_messages(task_id) or []
+            # Collect poster messages and answered questions from remarks
+            context_parts = []
+            
+            # Get answered questions from agent remarks
+            remarks = task.get("agent_remarks", [])
+            for remark in remarks:
+                eval_data = remark.get("evaluation")
+                if eval_data:
+                    for q in eval_data.get("questions", []):
+                        if q.get("answer"):
+                            context_parts.append(f"Q: {q['text']} -> A: {q['answer']}")
+
+            # Get poster's free-form text messages
+            poster_msgs = [
+                m for m in messages
+                if m.get("sender_type") == "poster" and m.get("message_type") == "text"
+            ]
+            for m in poster_msgs[-10:]:
+                content = m.get("content", "").strip()
+                if content:
+                    context_parts.append(f"Poster said: {content}")
+
+            if context_parts:
+                poster_context = "\n".join(context_parts)
+                log_think(f"Loaded {len(context_parts)} poster answers/messages for context", AGENT_NAME)
+        except Exception as e:
+            log_warn(f"Could not fetch poster conversation: {e}", AGENT_NAME)
+
         # ── STEP 1: Git Repo (Create FIRST, before any code) ──────────
         log_think(f"Initializing Git repo for task #{task_id}...", AGENT_NAME)
         append_build_log(task_dir, f"=== Coder Agent starting for task #{task_id} ===")
@@ -352,19 +483,19 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
             log_warn("GitHub repo creation failed — continuing with local git only.", AGENT_NAME)
             state["repo_url"] = get_repo_url(task_id)
 
-        # ── STEP 2: Plan (or resume from existing plan) ───────────────
+        # ── STEP 3: Plan the implementation ───────────────────────────
         if not state.get("plan"):
-            log_think(f"Planning implementation for task #{task_id}...", AGENT_NAME)
+            log_think("Planning implementation...", AGENT_NAME)
             write_progress(task_dir, task_id, "planning", "Analyzing requirements",
-                           "Breaking task into implementation steps",
-                           f"Planning solution for: {title[:60]}", 5.0)
+                           f"Breaking task into implementation steps (iteration {state.get('iterations', 0) + 1})",
+                           "Architecting solution...", 5.0)
 
-            plan = plan_implementation(title, desc, reqs, past_errors)
+            plan = plan_implementation(title, desc, reqs, past_errors, poster_context, complexity=plan_complexity)
             if not plan or not plan.get("steps"):
                 log_warn("Planning failed, falling back to single-step approach.", AGENT_NAME)
                 plan = {
-                    "project_type": "node",
-                    "scaffold_command": None,
+                    "project_type": "nextjs",
+                    "scaffold_command": "npx create-next-app@latest ./ --typescript --tailwind --eslint --app --no-src-dir --import-alias @/* --yes",
                     "steps": [{"step_number": 1, "description": "Complete implementation", "commit_message": "feat: complete implementation", "files": []}],
                     "test_command": "echo 'No tests defined'",
                 }
@@ -395,28 +526,40 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
 
         # ── STEP 3: Scaffold (if needed) ──────────────────────────────
         scaffold_cmd = plan.get("scaffold_command")
+        git_already_exists = (task_dir / ".git").exists()
+
         if scaffold_cmd and not state.get("scaffolded"):
-            log_think(f"Scaffolding project: {scaffold_cmd}", AGENT_NAME)
-            append_build_log(task_dir, f"Scaffold: {scaffold_cmd}")
-            write_progress(task_dir, task_id, "execution", "Scaffolding project",
-                           "Setting up project structure and boilerplate",
-                           f"Running: {scaffold_cmd[:80]}", 15.0)
-
-            rc, out = run_shell_combined(scaffold_cmd, task_dir, timeout=120)
-            log_command(task_dir, scaffold_cmd, rc, out)
-
-            if rc == 0:
-                h = commit_step(task_dir, f"chore: scaffold project ({plan.get('project_type', 'unknown')})")
-                if h:
-                    append_commit_log(task_dir, h, "chore: scaffold project")
-                    log_ok(f"Scaffolded and committed [{h}]", AGENT_NAME)
-
+            if git_already_exists:
+                # .git is already on disk from a previous run — skip scaffolding.
+                # create-next-app would fail because it refuses to overwrite an existing git repo.
+                log_warn(
+                    "Skipping scaffold: .git already exists on disk from a previous run.",
+                    AGENT_NAME,
+                )
                 state["scaffolded"] = True
                 _save_state(state_file, state)
             else:
-                log_warn(f"Scaffold command failed (rc={rc}). Continuing anyway.", AGENT_NAME)
-                state["scaffolded"] = True  # Don't retry
-                _save_state(state_file, state)
+                log_think(f"Scaffolding project: {scaffold_cmd}", AGENT_NAME)
+                append_build_log(task_dir, f"Scaffold: {scaffold_cmd}")
+                write_progress(task_dir, task_id, "execution", "Scaffolding project",
+                               "Setting up project structure and boilerplate",
+                               f"Running: {scaffold_cmd[:80]}", 15.0)
+
+                rc, out = run_shell_combined(scaffold_cmd, task_dir, timeout=3600)
+                log_command(task_dir, scaffold_cmd, rc, out)
+
+                if rc == 0:
+                    h = commit_step(task_dir, f"chore: scaffold project ({plan.get('project_type', 'unknown')})")
+                    if h:
+                        append_commit_log(task_dir, h, "chore: scaffold project")
+                        log_ok(f"Scaffolded and committed [{h}]", AGENT_NAME)
+
+                    state["scaffolded"] = True
+                    _save_state(state_file, state)
+                else:
+                    log_warn(f"Scaffold command failed (rc={rc}). Continuing anyway.", AGENT_NAME)
+                    state["scaffolded"] = True  # Don't retry
+                    _save_state(state_file, state)
 
         # ── STEP 4: Generate code for remaining Architectural blueprint ─
         log_think("Requesting architectural blueprint enhancement...", AGENT_NAME)
@@ -468,7 +611,8 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
             # Generate code for this step
             files = generate_step_code(
                 step, title, desc, reqs, enhanced_blueprint,
-                existing_files, skill_contents,
+                existing_files, skill_contents, poster_context, task_dir=task_dir,
+                complexity=plan_complexity
             )
 
             if not files:
@@ -546,6 +690,30 @@ def process_task(client: TaskHiveClient, task_id: int) -> dict:
                        95.0, metadata={"repo_url": state.get("repo_url", "")})
 
         # ── Transition to testing ─────────────────────────────────────
+        total_files = sum(len(s.get("files_written", [])) for s in state.get("completed_steps", []))
+        total_commits = len(state.get("commit_log", []))
+
+        # Validate: ensure we actually generated real source files
+        if total_files == 0:
+            log_err(f"CRITICAL: No source files were generated for task #{task_id}! "
+                    f"All {len(steps)} steps produced empty output.", AGENT_NAME)
+            
+            # Infinite Resilience: Increment iterations and reset state to retry autonomously
+            state["iterations"] = state.get("iterations", 0) + 1
+            
+            # Reset completed steps and plan to force a fresh start in the next tick
+            log_warn(f"AUTONOMOUS RESET: Resetting plan to retry code generation (iteration {state['iterations']})", AGENT_NAME)
+            state["plan"] = None
+            state["completed_steps"] = []
+            state["current_step"] = 0
+            state["scaffolded"] = False
+            
+            # If we've failed many times, maybe the workspace is corrupted — we could flag for a wipe here
+            # but for now we just reset the agent's internal state.
+            
+            _save_state(state_file, state)
+            return {"action": "error", "error": f"No source files generated (attempt {state['iterations']}) — autonomously resetting"}
+
         state["status"] = "testing"
         state["iterations"] = state.get("iterations", 0) + 1
         _save_state(state_file, state)

@@ -108,10 +108,10 @@ def resolve_api_key(state: ReviewerState) -> dict:
 def _get_default_key() -> dict | None:
     """Get the platform default LLM key from environment variables."""
     if key := os.environ.get("OPENROUTER_API_KEY"):
-        model = os.environ.get("DEFAULT_LLM_MODEL", "anthropic/claude-haiku-4-5-20251001")
+        model = os.environ.get("DEFAULT_LLM_MODEL", "anthropic/claude-sonnet-4-6")
         return {"key": key, "provider": "openrouter", "model": model}
     if key := os.environ.get("ANTHROPIC_API_KEY"):
-        model = os.environ.get("DEFAULT_LLM_MODEL", "claude-haiku-4-5-20251001")
+        model = os.environ.get("DEFAULT_LLM_MODEL", "claude-sonnet-4-6")
         return {"key": key, "provider": "anthropic", "model": model}
     if key := os.environ.get("OPENAI_API_KEY"):
         model = os.environ.get("DEFAULT_LLM_MODEL", "gpt-4o-mini")
@@ -122,8 +122,8 @@ def _get_default_key() -> dict | None:
 def _model_for_provider(provider: str) -> str:
     """Return the default model for a given provider."""
     defaults = {
-        "openrouter": os.environ.get("DEFAULT_LLM_MODEL", "anthropic/claude-haiku-4-5-20251001"),
+        "openrouter": os.environ.get("DEFAULT_LLM_MODEL", "anthropic/claude-sonnet-4-6"),
         "openai": "gpt-4o-mini",
-        "anthropic": "claude-haiku-4-5-20251001",
+        "anthropic": "claude-sonnet-4-6",
     }
-    return defaults.get(provider, "anthropic/claude-haiku-4-5-20251001")
+    return defaults.get(provider, "claude-sonnet-4-6")

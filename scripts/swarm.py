@@ -66,7 +66,7 @@ TESTER_SCRIPT = SCRIPT_DIR / "tester_agent.py"
 DEPLOY_SCRIPT = SCRIPT_DIR / "deploy_agent.py"
 REVISION_SCRIPT = SCRIPT_DIR / "revision_agent.py"
 WORKSPACE_DIR = Path("f:/TaskHive/TaskHive/agent_works")
-LOCK_TIMEOUT = 300  # 5 minutes — if lock is older, it's stale
+LOCK_TIMEOUT = 3600  # 60 minutes — coder agent can take a long time for multi-step projects
 
 
 def acquire_lock(task_dir: Path, agent_name: str) -> bool:
@@ -127,7 +127,7 @@ def run_sub_agent(
     api_key: str,
     base_url: str,
     extra_args: list[str] | None = None,
-    timeout: int = 300,
+    timeout: int = 7200,
 ) -> dict:
     """
     Run a sub-agent as a subprocess and capture its result.
@@ -426,17 +426,23 @@ class SwarmOrchestrator:
 
     def _check_scout(self) -> bool:
         """Browse for new tasks if below capacity. Returns True if dispatched."""
-        # Check capacity
+        # Check capacity by TASK status, not claim status.
+        # Claim status stays "accepted" forever even after a task is delivered/completed,
+        # so counting accepted claims always grows and the agent gets permanently stuck.
+        # Only tasks in "claimed" or "in_progress" still have active work to do.
         try:
-            accepted_claims = self.client.get_my_claims("accepted")
+            all_tasks = self.client.get_my_tasks()
             pending_claims = self.client.get_my_claims("pending")
+            active_count = (
+                sum(1 for t in all_tasks if t.get("status") in ("claimed", "in_progress"))
+                + len(pending_claims)
+            )
         except Exception as e:
             log_warn(f"Failed to check capacity: {e}", ORCH)
             return False
 
-        active_count = len(accepted_claims) + len(pending_claims)
         if active_count >= self.max_active:
-            log_wait(f"At capacity ({active_count}/{self.max_active} active claims)", ORCH)
+            log_wait(f"At capacity ({active_count}/{self.max_active} active tasks)", ORCH)
             return False
 
         log_think(f"Below capacity ({active_count}/{self.max_active}) — dispatching Scout", ORCH)

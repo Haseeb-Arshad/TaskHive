@@ -81,14 +81,14 @@ def evaluate_task(task: dict, capabilities: list[str], conv_messages: list[dict]
             "You are an AI freelancer agent on TaskHive. The task poster has answered your evaluation questions. "
             f"Your capabilities: {', '.join(capabilities)}. "
             "Review their answers carefully.\n\n"
+            "STACK RESTRICTION: You ONLY work on frontend/web projects using Next.js, React, or Vite. "
+            "If the task is NOT a frontend/web project, set should_claim=false.\n\n"
             "FOLLOW-UP RULES:\n"
-            "- Set feedback to 1-2 sentences only: acknowledge what you now know and whether you're ready to start\n"
-            "- If you have enough info, set should_claim=true, confidence=high, and keep feedback brief ('Got it — ready to start.')\n"
-            "- If you still need 1-2 clarifications, include focused follow-up questions\n"
-            "- NEVER repeat questions already answered\n"
-            "- NO long introductions, no chatty preambles, no enthusiasm filler\n\n"
-            "QUESTION TYPES (use sparingly for follow-ups, only if truly needed):\n"
-            "  'multiple_choice', 'yes_no', 'text_input', 'scale'\n"
+            "- The poster has answered your questions. You now have enough info to start.\n"
+            "- Set should_claim=true and confidence=high (mandatory).\n"
+            "- Set feedback to 1 sentence only: 'Got it — ready to start.'\n"
+            "- questions: [] (empty — do NOT ask more questions)\n"
+            "- approach: a concrete step-by-step plan based on the answers\n"
         )
     else:
         system_prompt = (
@@ -98,6 +98,10 @@ def evaluate_task(task: dict, capabilities: list[str], conv_messages: list[dict]
             "If a task has a clear title, reasonable description, and any stated requirements, that is usually ENOUGH to claim. "
             "Do NOT reject tasks for being 'too simple' or 'too small'. "
             "Only flag a task as vague if the description is truly insufficient to start work.\n\n"
+            "STACK RESTRICTION: You ONLY work on frontend/web projects using Next.js, React, or Vite. "
+            "If the task is NOT a frontend/web project (e.g. Python scripts, mobile apps, hardware), set should_claim=false.\n\n"
+            "IMPORTANT: On this initial evaluation round, set should_claim=false. "
+            "You are gathering requirements first. You will claim AFTER the poster answers your questions.\n\n"
             "FEEDBACK FIELD RULES (CRITICAL):\n"
             "- The 'feedback' field is shown directly to the poster BEFORE your questions appear\n"
             "- Keep it to ONE sentence that states your intent: e.g. 'I can build this — a few quick questions:'\n"
@@ -127,28 +131,70 @@ def evaluate_task(task: dict, capabilities: list[str], conv_messages: list[dict]
         f"  Requirements: {(task.get('requirements') or 'N/A')[:500]}\n"
         f"{remarks_history}\n"
         f"  Category: {task.get('category', {}).get('name', 'General') if isinstance(task.get('category'), dict) else 'General'}\n\n"
-        "Respond with this JSON structure:\n"
-        '{\n'
-        '  "should_claim": true/false,\n'
-        '  "confidence": "high"/"medium"/"low",\n'
-        '  "proposed_credits": <number>,\n'
-        '  "is_vague": true/false,\n'
-        '  "evaluation": {\n'
-        '    "score": <1-10>,\n'
-        '    "strengths": ["strength1", "strength2"],\n'
-        '    "concerns": ["concern1"],\n'
-        '    "questions": [\n'
-        '      {"id": "q1", "text": "...", "type": "yes_no"},\n'
-        '      {"id": "q2", "text": "...", "type": "multiple_choice", "options": ["A", "B", "C"]}\n'
-        '    ]\n'
-        '  },\n'
-        '  "feedback": "ONE sentence stating intent, e.g. \'I can handle this — just need a few details:\' NO greetings, NO restating the task title",\n'
-        '  "reason": "internal reason",\n'
-        '  "approach": "step-by-step plan"\n'
-        '}',
+        + (
+            # Follow-up prompt: poster answered, claim now
+            "The poster has answered your questions. Respond with valid JSON:\n"
+            '{\n'
+            '  "should_claim": true,\n'
+            '  "confidence": "high",\n'
+            '  "proposed_credits": 100,\n'
+            '  "is_vague": false,\n'
+            '  "evaluation": {"score": 9, "strengths": ["Poster provided clear answers"], "concerns": [], "questions": []},\n'
+            '  "feedback": "Got it — starting on this right away.",\n'
+            '  "reason": "Poster answered all questions",\n'
+            '  "approach": "Concrete step-by-step plan based on the answers provided."\n'
+            '}\n'
+            "Replace 100 with your actual proposed_credits."
+            if has_answered_questions else
+            # Initial prompt: ask questions, do NOT claim
+            "IMPORTANT: Set should_claim to FALSE. You are gathering requirements first.\n\n"
+            "Respond with this JSON structure (use valid JSON only):\n"
+            '{\n'
+            '  "should_claim": false,\n'
+            '  "confidence": "medium",\n'
+            '  "proposed_credits": 50,\n'
+            '  "is_vague": false,\n'
+            '  "evaluation": {\n'
+            '    "score": 7,\n'
+            '    "strengths": ["strength1", "strength2"],\n'
+            '    "concerns": ["concern1"],\n'
+            '    "questions": [\n'
+            '      {"id": "q1", "text": "...", "type": "yes_no"},\n'
+            '      {"id": "q2", "text": "...", "type": "multiple_choice", "options": ["A", "B", "C"]}\n'
+            '    ]\n'
+            '  },\n'
+            '  "feedback": "ONE sentence stating intent, e.g. \'I can handle this — just need a few details:\' NO greetings, NO restating the task title",\n'
+            '  "reason": "internal reason",\n'
+            '  "approach": "step-by-step plan"\n'
+            '}'
+        ),
         max_tokens=2048,
         complexity="routine"
     )
+
+    # Hard override based on phase
+    if has_answered_questions:
+        result["should_claim"] = True
+        result["confidence"] = "high"
+        if not result.get("feedback"):
+            result["feedback"] = "Got it — starting on this right away."
+        eval_obj = result.get("evaluation")
+        if isinstance(eval_obj, dict):
+            eval_obj["questions"] = []
+    else:
+        # Initial: NEVER claim — feedback only
+        result["should_claim"] = False
+        eval_obj = result.get("evaluation")
+        if isinstance(eval_obj, dict) and not eval_obj.get("questions"):
+            eval_obj["questions"] = [
+                {"id": "q1", "text": "Do you need user accounts and login?", "type": "yes_no"},
+                {"id": "q2", "text": "What vibe are you going for with the design?", "type": "multiple_choice",
+                 "options": ["Minimal & clean", "Bold & colorful", "Dark & sleek", "No preference"]},
+                {"id": "q3", "text": "Describe what the main page should look like", "type": "text_input",
+                 "placeholder": "e.g. A list of items with a search bar..."},
+                {"id": "q4", "text": "How polished should the final product be?", "type": "scale",
+                 "scale_min": 1, "scale_max": 5, "scale_labels": ["Quick prototype", "Production-ready"]},
+            ]
 
     # Ensure evaluation exists — generate context-aware fallback if LLM omitted it
     if not result.get("evaluation") or not isinstance(result.get("evaluation"), dict):
@@ -355,65 +401,85 @@ def run_scout(
             log_warn(f"LLM evaluation failed: {e}", AGENT_NAME)
             continue
 
-        # Always post structured evaluation feedback (even when planning to claim)
-        feedback = evaluation.get("feedback", "").strip().strip("\"'")
-        if len(my_remarks) < MAX_REMARKS_PER_TASK and feedback:
-            try:
-                remark_payload = {"remark": feedback}
-                eval_data = evaluation.get("evaluation", {})
-                if eval_data and isinstance(eval_data, dict):
-                    questions = []
-                    for idx, q in enumerate(eval_data.get("questions", [])[:8]):
-                        if not isinstance(q, dict) or not q.get("text"):
-                            continue
-                        qtype = q.get("type", "multiple_choice")
-                        entry = {
-                            "id": q.get("id", f"q{idx}"),
-                            "text": q["text"],
-                            "type": qtype,
-                        }
-                        if qtype == "multiple_choice":
-                            opts = q.get("options", [])
-                            if len(opts) < 2:
-                                continue
-                            entry["options"] = opts[:6]
-                        elif qtype == "text_input":
-                            entry["placeholder"] = q.get("placeholder", "Type your answer...")
-                        elif qtype == "scale":
-                            entry["scale_min"] = q.get("scale_min", 1)
-                            entry["scale_max"] = q.get("scale_max", 5)
-                            entry["scale_labels"] = q.get("scale_labels", ["Low", "High"])
-                        # yes_no needs no extra fields
-                        questions.append(entry)
+        # ── Two-phase feedback/claim logic ──
+        # Phase 1 (initial / no answers yet): Post feedback with questions, do NOT claim.
+        # Phase 2 (follow-up / poster answered): Skip remark, just claim.
+        has_answered_questions = False
+        for r in my_remarks:
+            eval_data = r.get("evaluation")
+            if eval_data:
+                for q in eval_data.get("questions", []):
+                    if q.get("answer"):
+                        has_answered_questions = True
+                        break
+            if has_answered_questions:
+                break
+        if not has_answered_questions and conv_messages:
+            poster_msgs = [m for m in conv_messages if m.get("sender_type") == "poster" and m.get("message_type") == "text"]
+            if poster_msgs:
+                has_answered_questions = True
 
-                    remark_payload["evaluation"] = {
-                        "score": int(eval_data.get("score", 5)),
-                        "strengths": [s for s in eval_data.get("strengths", [])[:5] if s],
-                        "concerns": [c for c in eval_data.get("concerns", [])[:5] if c],
-                        "questions": questions,
-                    }
-                log_think(f"  Posting evaluation (score={eval_data.get('score')}, {len(remark_payload.get('evaluation', {}).get('questions', []))} Qs)", AGENT_NAME)
-                result = client.post_remark(task_id, remark_payload)
-                if result.get("ok"):
-                    log_ok(f"Evaluation posted to #{task_id}", AGENT_NAME)
-                else:
-                    err_info = result.get("error", {})
-                    err_msg = err_info.get("message", str(err_info)) if isinstance(err_info, dict) else str(err_info)
-                    log_warn(f"Failed to post evaluation to #{task_id}: {err_msg}", AGENT_NAME)
-            except Exception as e:
-                log_warn(f"Failed to send evaluation to #{task_id}: {e}", AGENT_NAME)
-
-        if not is_claimed and evaluation.get("should_claim") and evaluation.get("confidence") in ("high", "medium"):
-            if best_task is None or evaluation.get("proposed_credits", 0) > (best_evaluation or {}).get("proposed_credits", 0):
-                best_task = detail
-                best_evaluation = evaluation
-                log_think(f"  -> Good fit! confidence={evaluation.get('confidence')}, bid={evaluation.get('proposed_credits')}", AGENT_NAME)
-        elif is_claimed:
-            log_think(f"  -> Already claimed, posted follow-up feedback", AGENT_NAME)
-            attempted_tasks[task_id] = datetime.now(timezone.utc)
+        if has_answered_questions:
+            # PHASE 2: Poster answered — skip remark, proceed directly to claim
+            log_think(f"  Poster answered questions for #{task_id} — proceeding to claim (no new remark)", AGENT_NAME)
+            if not is_claimed and evaluation.get("should_claim") and evaluation.get("confidence") in ("high", "medium"):
+                if best_task is None or evaluation.get("proposed_credits", 0) > (best_evaluation or {}).get("proposed_credits", 0):
+                    best_task = detail
+                    best_evaluation = evaluation
+                    log_think(f"  -> Good fit! confidence={evaluation.get('confidence')}, bid={evaluation.get('proposed_credits')}", AGENT_NAME)
+            elif is_claimed:
+                log_think(f"  -> Already claimed #{task_id}", AGENT_NAME)
+                attempted_tasks[task_id] = datetime.now(timezone.utc)
         else:
-            log_think(f"  -> Skipping: {evaluation.get('reason', 'not a good fit')[:120]}", AGENT_NAME)
+            # PHASE 1: Initial evaluation — post feedback with questions, do NOT claim
+            feedback = evaluation.get("feedback", "").strip().strip("\"'")
+            if len(my_remarks) < MAX_REMARKS_PER_TASK and feedback:
+                try:
+                    remark_payload = {"remark": feedback}
+                    eval_data = evaluation.get("evaluation", {})
+                    if eval_data and isinstance(eval_data, dict):
+                        questions = []
+                        for idx, q in enumerate(eval_data.get("questions", [])[:8]):
+                            if not isinstance(q, dict) or not q.get("text"):
+                                continue
+                            qtype = q.get("type", "multiple_choice")
+                            entry = {
+                                "id": q.get("id", f"q{idx}"),
+                                "text": q["text"],
+                                "type": qtype,
+                            }
+                            if qtype == "multiple_choice":
+                                opts = q.get("options", [])
+                                if len(opts) < 2:
+                                    continue
+                                entry["options"] = opts[:6]
+                            elif qtype == "text_input":
+                                entry["placeholder"] = q.get("placeholder", "Type your answer...")
+                            elif qtype == "scale":
+                                entry["scale_min"] = q.get("scale_min", 1)
+                                entry["scale_max"] = q.get("scale_max", 5)
+                                entry["scale_labels"] = q.get("scale_labels", ["Low", "High"])
+                            questions.append(entry)
 
+                        remark_payload["evaluation"] = {
+                            "score": int(eval_data.get("score", 5)),
+                            "strengths": [s for s in eval_data.get("strengths", [])[:5] if s],
+                            "concerns": [c for c in eval_data.get("concerns", [])[:5] if c],
+                            "questions": questions,
+                        }
+                    log_think(f"  Posting feedback only (score={eval_data.get('score')}, {len(remark_payload.get('evaluation', {}).get('questions', []))} Qs) — no claim yet", AGENT_NAME)
+                    result = client.post_remark(task_id, remark_payload)
+                    if result.get("ok"):
+                        log_ok(f"Feedback posted to #{task_id} (waiting for poster to answer)", AGENT_NAME)
+                    else:
+                        err_info = result.get("error", {})
+                        err_msg = err_info.get("message", str(err_info)) if isinstance(err_info, dict) else str(err_info)
+                        log_warn(f"Failed to post feedback to #{task_id}: {err_msg}", AGENT_NAME)
+                except Exception as e:
+                    log_warn(f"Failed to send feedback to #{task_id}: {e}", AGENT_NAME)
+
+            # Do NOT claim — wait for poster to answer
+            log_think(f"  -> Feedback posted, waiting for poster to answer before claiming", AGENT_NAME)
             attempted_tasks[task_id] = datetime.now(timezone.utc)
 
     if not best_task:

@@ -249,8 +249,8 @@ function QuestionRenderer({
   const displayAnswer = q.answer || value;
 
   if (isAnswered) {
-    // Multi-select answers are comma-separated — display as tags
-    const answerParts = displayAnswer ? displayAnswer.split(", ").filter(Boolean) : [];
+    // Multi-select answers are pipe-separated — display as tags
+    const answerParts = displayAnswer ? displayAnswer.split("|||").filter(Boolean) : [];
     return (
       <div>
         <p className="text-sm font-medium text-stone-700 mb-1.5">
@@ -361,14 +361,14 @@ function McqInput({
   onChange: (v: string) => void;
   disabled: boolean;
 }) {
-  // Multi-select: value is a comma-separated list of selected options
-  const selected = value ? value.split(", ").filter(Boolean) : [];
+  // Multi-select: value is a pipe-separated list of selected options ("|||" avoids conflicts with option text)
+  const selected = value ? value.split("|||").filter(Boolean) : [];
 
   function toggleOption(option: string) {
     const next = selected.includes(option)
       ? selected.filter((s) => s !== option)
       : [...selected, option];
-    onChange(next.join(", "));
+    onChange(next.join("|||"));
   }
 
   return (

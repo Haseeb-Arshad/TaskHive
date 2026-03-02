@@ -448,6 +448,14 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
         isActive={isActive}
       />
 
+      {/* ── Raw Terminal logs ── */}
+      {executionId && (
+        <RawLogs
+          executionId={executionId}
+          isActive={isActive}
+        />
+      )}
+
       {/* ── Error ── */}
       {execution?.error_message && (
         <div className="mt-5 rounded-xl border border-red-200 bg-red-50 px-5 py-4">
@@ -540,6 +548,11 @@ function QuestProgress({
    JOURNEY MAP — Interactive SVG with winding path
    ═══════════════════════════════════════════════════════════ */
 
+/** Truncate a string to fit within maxLen characters */
+function truncateLabel(text: string, maxLen = 16): string {
+  return text.length > maxLen ? text.slice(0, maxLen - 1) + "…" : text;
+}
+
 function JourneyMap({
   subtasks,
   selectedPhase,
@@ -561,23 +574,19 @@ function JourneyMap({
   const completedCount = subtasks.filter(s => s.status === "completed").length;
   const progressPct = subtasks.length > 0 ? (completedCount / subtasks.length) * 100 : 0;
 
-  // SVG dimensions
+  // SVG dimensions — extra horizontal padding so pills at x=150 or x=350 stay in view
   const W = 500;
-  // Dynamic height based on number of tasks, min 600
-  const H = Math.max(600, subtasks.length * 100 + 150);
+  const H = Math.max(600, subtasks.length * 110 + 150);
 
   // Dynamically calculate checkpoints positions winding back and forth
   const checkpoints = useMemo(() => {
-    return subtasks.map((_, i) => {
-      const isRight = i % 2 !== 0;
-      return {
-        x: isRight ? 350 : 150, // Alternate left/right offset 
-        y: 80 + (i * 100), // Move downward linearly 100px per node
-      };
-    });
+    return subtasks.map((_, i) => ({
+      x: i % 2 !== 0 ? 345 : 155,
+      y: 90 + i * 110,
+    }));
   }, [subtasks]);
 
-  // Build path
+  // Build smooth bezier path
   const pathD = useMemo(() => {
     if (checkpoints.length === 0) return "";
     const pts = checkpoints;
@@ -585,14 +594,28 @@ function JourneyMap({
     for (let i = 1; i < pts.length; i++) {
       const prev = pts[i - 1];
       const curr = pts[i];
-      const cpx1 = prev.x + (curr.x - prev.x) * 0.5;
-      const cpy1 = prev.y;
-      const cpx2 = prev.x + (curr.x - prev.x) * 0.5;
-      const cpy2 = curr.y;
-      d += ` C ${cpx1} ${cpy1}, ${cpx2} ${cpy2}, ${curr.x} ${curr.y}`;
+      const cpx = prev.x + (curr.x - prev.x) * 0.5;
+      d += ` C ${cpx} ${prev.y}, ${cpx} ${curr.y}, ${curr.x} ${curr.y}`;
     }
     return d;
   }, [checkpoints]);
+
+  // Approximate total path length for strokeDashoffset-based progress
+  // We use a dummy approach: total segment lengths summed
+  const pathLengthApprox = useMemo(() => {
+    if (checkpoints.length < 2) return 1;
+    let total = 0;
+    for (let i = 1; i < checkpoints.length; i++) {
+      const dx = checkpoints[i].x - checkpoints[i - 1].x;
+      const dy = checkpoints[i].y - checkpoints[i - 1].y;
+      total += Math.sqrt(dx * dx + dy * dy);
+    }
+    return total || 1;
+  }, [checkpoints]);
+
+  // For the dashed completed trail we use a clip rect approach that actually works:
+  // We draw the same dashed path but clip it to a rectangle covering the top N% of the SVG height
+  const clipHeight = isComplete ? H : (progressPct / 100) * H;
 
   return (
     <div
@@ -602,15 +625,12 @@ function JourneyMap({
     >
       {/* Background decorations */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        {/* Grid pattern */}
         <svg className="absolute inset-0 h-full w-full opacity-[0.04]">
-          <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+          <pattern id="jm-grid" width="24" height="24" patternUnits="userSpaceOnUse">
             <path d="M 24 0 L 0 0 0 24" fill="none" stroke="currentColor" strokeWidth="1" />
           </pattern>
-          <rect width="100%" height="100%" fill="url(#grid)" />
+          <rect width="100%" height="100%" fill="url(#jm-grid)" />
         </svg>
-
-        {/* Decorative trees */}
         <TreeDecoration x="8%" y="75%" size={0.7} />
         <TreeDecoration x="85%" y="60%" size={0.55} />
         <TreeDecoration x="15%" y="35%" size={0.6} />
@@ -629,27 +649,35 @@ function JourneyMap({
         preserveAspectRatio="xMidYMid meet"
       >
         <defs>
-          {/* Glow filter */}
-          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="4" result="blur" />
+          <filter id="jm-glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="3" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
 
-          {/* Pulse animation */}
-          <filter id="pulse-glow" x="-100%" y="-100%" width="300%" height="300%">
-            <feGaussianBlur stdDeviation="6" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
+          {/* Clip for the progress fill path */}
+          <clipPath id="jm-progress-clip">
+            <rect
+              x="0"
+              y="0"
+              width={W}
+              height={clipHeight}
+              style={{ transition: "height 1s ease-out" }}
+            />
+          </clipPath>
+
+          {/* Per-node text clip paths — one rect per subtask */}
+          {subtasks.map((sub, i) => (
+            <clipPath key={`cp-${sub.id}`} id={`jm-text-clip-${sub.id}`}>
+              {/* text area: from icon right edge (-44) to right side (72), centred at node translate */}
+              <rect x="-44" y="-12" width="114" height="24" />
+            </clipPath>
+          ))}
         </defs>
 
-        {/* Trail path — background */}
+        {/* Trail — background (full dashed, faded) */}
         <path
           d={pathD}
           fill="none"
@@ -660,19 +688,15 @@ function JourneyMap({
           opacity="0.5"
         />
 
-        {/* Trail path — completed portion */}
+        {/* Trail — completed portion via SVG clipPath */}
         <path
           d={pathD}
           fill="none"
-          stroke={isComplete ? "#10b981" : isFailed ? "#ef4444" : "#10b981"}
+          stroke={isFailed ? "#ef4444" : "#10b981"}
           strokeWidth="4"
           strokeDasharray="12 8"
           strokeLinecap="round"
-          style={{
-            strokeDashoffset: 0,
-            clipPath: `inset(0 0 ${isComplete ? 0 : Math.max(0, 100 - progressPct)}% 0)`,
-            transition: "clip-path 1s ease-out",
-          }}
+          clipPath="url(#jm-progress-clip)"
         />
 
         {/* Checkpoint nodes */}
@@ -681,69 +705,88 @@ function JourneyMap({
           const isDone = isComplete || sub.status === "completed";
           const isCurrent = sub.status === "in_progress" && !isComplete;
           const isSelected = String(sub.id) === selectedPhase;
+          const label = truncateLabel(sub.title, 15);
 
           return (
             <g
               key={sub.id}
               className="cursor-pointer"
               onClick={() => onSelectPhase(String(sub.id))}
-              style={{ transition: "transform 0.3s" }}
             >
-              {/* Flag pole (if completed or active) */}
+              {/* Flag pole */}
               {(isDone || isCurrent) && (
-                <g transform={`translate(${pt.x + 20}, ${pt.y - 45})`}>
-                  <line x1="0" y1="0" x2="0" y2="40" stroke="#78716c" strokeWidth="2.5" strokeLinecap="round" />
-                  <path d="M 0 0 L 16 6 L 0 12 Z" fill="#10b981" />
+                <g transform={`translate(${pt.x + 18}, ${pt.y - 42})`}>
+                  <line x1="0" y1="0" x2="0" y2="38" stroke="#78716c" strokeWidth="2" strokeLinecap="round" />
+                  <path d="M 0 0 L 14 5 L 0 10 Z" fill="#10b981" />
                 </g>
               )}
 
-              {/* Base platform shadow */}
+              {/* Shadow ellipse */}
               <ellipse
                 cx={pt.x}
-                cy={pt.y + 12}
-                rx="24"
-                ry="8"
+                cy={pt.y + 14}
+                rx="28"
+                ry="7"
                 fill="black"
-                opacity="0.1"
+                opacity="0.07"
               />
 
-              {/* The Pill Label (The main interactable node) */}
+              {/* Pill container */}
               <g transform={`translate(${pt.x}, ${pt.y})`}>
                 <rect
-                  x="-75"
-                  y="-14"
-                  width="150"
-                  height="28"
-                  rx="14"
+                  x="-78"
+                  y="-15"
+                  width="156"
+                  height="30"
+                  rx="15"
                   fill="white"
                   stroke={isSelected ? "#10b981" : "#e7e5e4"}
                   strokeWidth={isSelected ? "2" : "1"}
-                  filter={isSelected ? "url(#glow)" : "drop-shadow(0 4px 6px rgba(0,0,0,0.05))"}
-                  className="transition-all duration-300"
+                  filter={isSelected ? "url(#jm-glow)" : "drop-shadow(0 2px 6px rgba(0,0,0,0.06))"}
                 />
 
-                {/* Status Icon Indicator inside pill */}
-                <circle cx="-56" cy="0" r="10" fill={isDone || isCurrent ? "#10b981" : "#f5f5f4"} />
-                {isDone || isCurrent ? (
-                  <path d="M-60 0 L-57 3 L-52 -3" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                ) : null}
+                {/* Status circle */}
+                <circle
+                  cx="-57"
+                  cy="0"
+                  r="10"
+                  fill={isDone ? "#10b981" : isCurrent ? "#3b82f6" : "#f5f5f4"}
+                />
+                {isDone && (
+                  <path
+                    d="M-61 0 L-58 3 L-53 -3"
+                    fill="none"
+                    stroke="white"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )}
+                {isCurrent && (
+                  <circle cx="-57" cy="0" r="4" fill="white" />
+                )}
 
-                {/* Text Label */}
-                <text
-                  x="-35"
-                  y="4"
-                  fontSize="12"
-                  fontWeight="600"
-                  fontFamily="system-ui, sans-serif"
-                  fill={isDone || isCurrent ? "#059669" : "#78716c"}
-                >
-                  <tspan className="truncate">{sub.title}</tspan>
-                </text>
+                {/* Text — clipped to pill interior so it never overflows */}
+                <g clipPath={`url(#jm-text-clip-${sub.id})`}>
+                  <text
+                    x="-40"
+                    y="4"
+                    fontSize="11"
+                    fontWeight="600"
+                    fontFamily="system-ui, -apple-system, sans-serif"
+                    fill={isDone ? "#059669" : isCurrent ? "#2563eb" : "#78716c"}
+                  >
+                    {label}
+                  </text>
+                </g>
               </g>
 
-              {/* Pulse effect if it's the current active working phase */}
+              {/* Pulse ring for active node — pure SVG animation */}
               {isCurrent && isActive && (
-                <circle cx={pt.x - 56} cy={pt.y} r="10" fill="none" stroke="#10b981" strokeWidth="2" className="animate-ping origin-center" />
+                <circle cx={pt.x - 57} cy={pt.y} r="10" fill="none" stroke="#3b82f6" strokeWidth="1.5" opacity="0">
+                  <animate attributeName="r" from="10" to="20" dur="1.5s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" from="0.7" to="0" dur="1.5s" repeatCount="indefinite" />
+                </circle>
               )}
             </g>
           );
@@ -1232,3 +1275,100 @@ function PhaseIconInline({ phase, white }: { phase: string; white: boolean }) {
     </div>
   );
 }
+
+/* ═══════════════════════════════════════════════════════════
+   RAW LOGS VIEWER
+   ═══════════════════════════════════════════════════════════ */
+
+function RawLogs({
+  executionId,
+  isActive,
+}: {
+  executionId: number;
+  isActive: boolean;
+}) {
+  const [logs, setLogs] = useState<string>("Loading raw logs...");
+  const [expanded, setExpanded] = useState(false);
+  const logRef = useRef<HTMLPreElement>(null);
+
+  useEffect(() => {
+    if (!expanded) return;
+
+    let cancelled = false;
+    async function fetchLogs() {
+      try {
+        const res = await fetch(`/api/orchestrator/tasks/${executionId}/logs`);
+        if (res.ok) {
+          const json = await res.json();
+          if (!cancelled && json.ok) {
+            setLogs(json.data || "Logs are empty.");
+          }
+        }
+      } catch {
+        // Ignore
+      }
+    }
+
+    fetchLogs();
+
+    // Auto-refresh when active
+    let interval: ReturnType<typeof setInterval>;
+    if (isActive) {
+      interval = setInterval(fetchLogs, 5000);
+    }
+    return () => {
+      cancelled = true;
+      if (interval) clearInterval(interval);
+    };
+  }, [executionId, isActive, expanded]);
+
+  // Auto-scroll when logs change
+  useEffect(() => {
+    if (expanded && logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight;
+    }
+  }, [logs, expanded]);
+
+  return (
+    <div className="mt-5 rounded-xl border border-stone-200 bg-white">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center justify-between px-5 py-3.5 text-left transition-colors hover:bg-stone-50 rounded-xl"
+      >
+        <div className="flex items-center gap-2">
+          <p className="text-[10px] font-bold uppercase tracking-[.12em] text-stone-400">
+            Internal Agent Logs & Debug Output
+          </p>
+          {isActive && (
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+          )}
+        </div>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className={`h-4 w-4 text-stone-400 transition-transform ${expanded ? "rotate-180" : ""}`}
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-stone-100 p-0 bg-black rounded-b-xl overflow-hidden">
+          <pre
+            ref={logRef}
+            className="p-4 text-xs font-mono text-stone-300 overflow-auto whitespace-pre-wrap leading-relaxed max-h-96"
+          >
+            {logs}
+            {isActive && (
+              <span className="animate-pulse text-emerald-500">_</span>
+            )}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+

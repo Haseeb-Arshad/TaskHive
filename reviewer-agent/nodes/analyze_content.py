@@ -84,8 +84,8 @@ def analyze_content(state: ReviewerState) -> dict:
         return {}
 
     llm_api_key = state.get("llm_api_key")
-    llm_provider = state.get("llm_provider", "openrouter")
-    llm_model = state.get("llm_model", "anthropic/claude-haiku-4-5-20251001")
+    llm_provider = state.get("llm_provider", "anthropic")
+    llm_model = state.get("llm_model", "claude-sonnet-4-6")
 
     if not llm_api_key:
         return {"skip_review": True}

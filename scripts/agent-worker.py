@@ -33,6 +33,7 @@ import io
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import traceback
@@ -58,10 +59,19 @@ load_dotenv(Path(__file__).parent.parent / "reviewer-agent" / ".env")
 BASE_URL = os.environ.get("TASKHIVE_BASE_URL", os.environ.get("NEXTAUTH_URL", "http://localhost:3000"))
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
 
-DEFAULT_CAPABILITIES = ["python", "javascript", "typescript", "sql", "api-design", "data-processing"]
+DEFAULT_CAPABILITIES = ["nextjs", "react", "vite", "javascript", "typescript", "tailwindcss", "frontend", "web-development"]
 DEFAULT_INTERVAL = 20  # seconds between polls
 MAX_CONCURRENT_TASKS = 1  # tasks to work on at once
 MAX_REMARKS_PER_TASK = 4  # max feedback remarks per agent per task (initial + follow-ups)
+
+# Pipeline sub-agent scripts (mirrors swarm.py)
+SCRIPT_DIR = Path(__file__).parent / "agents"
+WORKSPACE_DIR = Path(__file__).parent.parent / "agent_works"
+CODER_SCRIPT = SCRIPT_DIR / "coder_agent.py"
+TESTER_SCRIPT = SCRIPT_DIR / "tester_agent.py"
+DEPLOY_SCRIPT = SCRIPT_DIR / "deploy_agent.py"
+REVISION_SCRIPT = SCRIPT_DIR / "revision_agent.py"
+LOCK_TIMEOUT = 3600  # 60 minutes — coder agent can take a long time for multi-step projects
 
 # ═══════════════════════════════════════════════════════════════════════════
 # LOGGING
@@ -90,6 +100,99 @@ def iso_to_datetime(iso_str: str | None) -> datetime | None:
         return datetime.fromisoformat(clean_str)
     except Exception:
         return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PIPELINE HELPERS (run coder/deploy sub-agents, mirrors swarm.py)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _acquire_lock(task_dir: Path, agent_name: str) -> bool:
+    """Acquire a per-task lock. Returns True if acquired."""
+    lock_file = task_dir / ".agent_lock"
+    if lock_file.exists():
+        try:
+            lock_data = json.loads(lock_file.read_text(encoding="utf-8"))
+            lock_age = time.time() - lock_data.get("timestamp", 0)
+            if lock_age < LOCK_TIMEOUT:
+                log_warn(f"Task dir locked by {lock_data.get('agent', '?')} ({int(lock_age)}s ago) — skipping")
+                return False
+        except Exception:
+            pass
+    lock_file.write_text(
+        json.dumps({"agent": agent_name, "pid": os.getpid(), "timestamp": time.time()}),
+        encoding="utf-8",
+    )
+    return True
+
+
+def _release_lock(task_dir: Path):
+    lock_file = task_dir / ".agent_lock"
+    try:
+        lock_file.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _run_pipeline_agent(script: Path, api_key: str, base_url: str, task_id: int, timeout: int = 7200) -> dict:
+    """
+    Run a pipeline sub-agent (coder / deploy / revision) as a subprocess.
+    Prints its output live and returns the JSON result emitted on __RESULT__: line.
+    """
+    cmd = [
+        sys.executable, str(script),
+        "--api-key", api_key,
+        "--base-url", base_url,
+        "--task-id", str(task_id),
+    ]
+    agent_name = script.stem.replace("_agent", "").title()
+    log_act(f"Dispatching {agent_name} Agent for task #{task_id}...")
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=timeout,
+            cwd=str(script.parent.parent),  # scripts/
+            env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"},
+        )
+
+        for line in (proc.stdout or "").strip().splitlines():
+            if not line.startswith("__RESULT__:"):
+                print(f"    {line}", flush=True)
+        for line in (proc.stderr or "").strip().splitlines():
+            print(f"    [stderr] {line}", flush=True)
+
+        # Extract __RESULT__ JSON
+        for line in (proc.stdout or "").splitlines():
+            if line.startswith("__RESULT__:"):
+                try:
+                    return json.loads(line[len("__RESULT__:"):])
+                except json.JSONDecodeError:
+                    pass
+
+        if proc.returncode != 0:
+            log_warn(f"{agent_name} Agent exited with code {proc.returncode}")
+        return {"action": "no_result", "exit_code": proc.returncode}
+
+    except subprocess.TimeoutExpired:
+        log_err(f"{agent_name} Agent timed out after {timeout}s for task #{task_id}")
+        return {"action": "timeout"}
+    except Exception as exc:
+        log_err(f"Failed to run {agent_name} Agent: {exc}")
+        return {"action": "error", "error": str(exc)}
+
+
+def _get_pipeline_stage(task_dir: Path) -> str:
+    """Read the .swarm_state.json to determine the current pipeline stage."""
+    state_file = task_dir / ".swarm_state.json"
+    if state_file.exists():
+        try:
+            state = json.loads(state_file.read_text(encoding="utf-8"))
+            return state.get("status", "coding")
+        except Exception:
+            pass
+    return "coding"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -153,7 +256,7 @@ class TaskHiveClient:
     def __init__(self, base_url: str, api_key: str = None):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
-        self.http = httpx.Client(base_url=self.base_url, timeout=60.0)
+        self.http = httpx.Client(base_url=self.base_url, timeout=3600.0)
         self.agent_id = None
         self.agent_name = None
 
@@ -328,19 +431,21 @@ class AgentBrain:
         if has_answered_questions:
             system_prompt = (
                 "You are an AI freelancer agent on TaskHive. The task poster has answered your evaluation questions. "
-                f"Your capabilities: {', '.join(self.capabilities)}. "
-                "Review their answers carefully.\n\n"
-                "FOLLOW-UP RULES:\n"
-                "- Set feedback to 1-2 sentences only: acknowledge what you now know and whether you're ready to start\n"
-                "- If you have enough info, set should_claim=true, confidence=high, keep feedback brief ('Got it — ready to start.')\n"
-                "- If you still need 1-2 clarifications, include focused follow-up questions\n"
-                "- NEVER repeat questions already answered\n"
-                "- NO long introductions, no chatty preambles, no enthusiasm filler\n\n"
-                "QUESTION TYPES (use sparingly for follow-ups, only if needed):\n"
-                "  'multiple_choice' — the poster can SELECT MULTIPLE options (checkboxes); use for 'which of these apply?' style questions with 3-6 options\n"
-                "  'yes_no' — quick feature toggles\n"
-                "  'text_input' — open-ended details (include placeholder)\n"
-                "  'scale' — priorities on a spectrum (include scale_min, scale_max, scale_labels)\n"
+                f"Your capabilities: {', '.join(self.capabilities)}.\n\n"
+                "STACK RESTRICTION: You ONLY work on frontend/web projects using Next.js, React, or Vite. "
+                "If the task is NOT a frontend/web project, set should_claim=false.\n\n"
+                "MANDATORY DECISION RULE:\n"
+                "The poster has provided their answers. You now have enough information to start. "
+                "You MUST set should_claim=true and confidence=high. This is non-negotiable.\n"
+                "The ONLY reason NOT to claim is if the task requires skills you fundamentally don't have "
+                "(e.g. they want hardware engineering and you only do software), or the budget is 0.\n\n"
+                "OUTPUT RULES:\n"
+                "- should_claim: true (mandatory)\n"
+                "- confidence: 'high' (mandatory)\n"
+                "- feedback: exactly ONE short sentence acknowledging their answers, e.g. 'Got it — starting on this right away.' "
+                "No greetings. No restating the task. No enthusiasm filler.\n"
+                "- questions: [] (empty — do NOT ask more questions)\n"
+                "- approach: a concrete step-by-step plan based on all the information gathered\n"
             )
         else:
             system_prompt = (
@@ -350,6 +455,10 @@ class AgentBrain:
                 "If a task has a clear title, reasonable description, and any stated requirements, that is usually ENOUGH to claim. "
                 "Do NOT reject tasks for being 'too simple' or 'too small'. "
                 "Only flag a task as vague if the description is truly insufficient to start work.\n\n"
+                "STACK RESTRICTION: You ONLY work on frontend/web projects using Next.js, React, or Vite. "
+                "If the task is NOT a frontend/web project (e.g. Python scripts, mobile apps, hardware), set should_claim=false.\n\n"
+                "IMPORTANT: On this initial evaluation round, set should_claim=false. "
+                "You are gathering requirements first. You will claim AFTER the poster answers your questions.\n\n"
                 "FEEDBACK FIELD RULES (CRITICAL):\n"
                 "- The 'feedback' field is shown to the poster BEFORE your questions appear in the UI\n"
                 "- Keep it to ONE sentence stating intent: e.g. 'I can build this — a few quick questions:'\n"
@@ -365,38 +474,89 @@ class AgentBrain:
                 "For 'multiple_choice', phrase questions as 'Which of the following...' or 'Select all that apply:' to hint at multi-select."
             )
 
-        result = llm_json(
-            system_prompt,
-
-            f"Evaluate this task:\n"
-            f"  Title: {task.get('title', 'N/A')}\n"
-            f"  Description: {(task.get('description') or 'N/A')[:800]}\n"
-            f"  Budget: {task.get('budget_credits', 0)} credits\n"
-            f"  Requirements: {(task.get('requirements') or 'N/A')[:500]}\n"
-            f"{remarks_history}\n"
-            f"  Category: {task.get('category', {}).get('name', 'General') if isinstance(task.get('category'), dict) else 'General'}\n\n"
-            "Respond with this JSON structure:\n"
-            '{\n'
-            '  "should_claim": true/false,\n'
-            '  "confidence": "high"/"medium"/"low",\n'
-            '  "proposed_credits": <number>,\n'
-            '  "is_vague": true/false,\n'
-            '  "evaluation": {\n'
-            '    "score": <1-10>,\n'
-            '    "strengths": ["strength1", "strength2"],\n'
-            '    "concerns": ["concern1"],\n'
-            '    "questions": [\n'
-            '      {"id": "q1", "text": "Do you need user accounts?", "type": "yes_no"},\n'
-            '      {"id": "q2", "text": "What vibe?", "type": "multiple_choice", "options": ["Minimal", "Bold", "Dark"]},\n'
-            '      {"id": "q3", "text": "Describe your homepage", "type": "text_input", "placeholder": "e.g. A grid of cards..."},\n'
-            '      {"id": "q4", "text": "How polished?", "type": "scale", "scale_min": 1, "scale_max": 5, "scale_labels": ["Prototype", "Production"]}\n'
-            '    ]\n'
-            '  },\n'
-            '  "feedback": "ONE sentence stating intent, e.g. \'Ready to build this — just need a few details:\' NO greetings, NO restating the task title",\n'
-            '  "reason": "internal reason",\n'
-            '  "approach": "Detailed step-by-step plan: \'1. Set up project structure with X. 2. Implement Y using Z. 3. Add tests for A. 4. Deploy to B.\' Be concrete and technical."\n'
-            '}'
+        task_context = (
+            f"Task title: {task.get('title', 'N/A')}\n"
+            f"Description: {(task.get('description') or 'N/A')[:800]}\n"
+            f"Budget: {task.get('budget_credits', 0)} credits\n"
+            f"Requirements: {(task.get('requirements') or 'N/A')[:500]}\n"
+            f"Category: {task.get('category', {}).get('name', 'General') if isinstance(task.get('category'), dict) else 'General'}\n"
+            f"{remarks_history}"
         )
+
+        if has_answered_questions:
+            # Follow-up: poster answered — always claim, no more questions
+            user_prompt = (
+                f"{task_context}\n"
+                "The poster has answered your questions. Respond with valid JSON:\n"
+                '{\n'
+                '  "should_claim": true,\n'
+                '  "confidence": "high",\n'
+                '  "proposed_credits": 100,\n'
+                '  "is_vague": false,\n'
+                '  "evaluation": {"score": 9, "strengths": ["Poster provided clear answers"], "concerns": [], "questions": []},\n'
+                '  "feedback": "Got it — starting on this right away.",\n'
+                '  "reason": "Poster answered all questions",\n'
+                '  "approach": "Concrete step-by-step plan based on the answers provided."\n'
+                '}\n'
+                "Replace 100 with your actual proposed_credits. DO NOT change should_claim or confidence."
+            )
+        else:
+            # Initial evaluation: ask questions to gather requirements — do NOT claim yet
+            user_prompt = (
+                f"Evaluate this task:\n{task_context}\n\n"
+                "IMPORTANT: Set should_claim to FALSE. You are gathering requirements first.\n\n"
+                "Respond with this JSON structure (use valid JSON only):\n"
+                '{\n'
+                '  "should_claim": false,\n'
+                '  "confidence": "medium",\n'
+                '  "proposed_credits": 50,\n'
+                '  "is_vague": false,\n'
+                '  "evaluation": {\n'
+                '    "score": 7,\n'
+                '    "strengths": ["strength1", "strength2"],\n'
+                '    "concerns": ["concern1"],\n'
+                '    "questions": [\n'
+                '      {"id": "q1", "text": "Do you need user accounts?", "type": "yes_no"},\n'
+                '      {"id": "q2", "text": "What vibe?", "type": "multiple_choice", "options": ["Minimal", "Bold", "Dark"]},\n'
+                '      {"id": "q3", "text": "Describe your homepage", "type": "text_input", "placeholder": "e.g. A grid of cards..."},\n'
+                '      {"id": "q4", "text": "How polished?", "type": "scale", "scale_min": 1, "scale_max": 5, "scale_labels": ["Prototype", "Production"]}\n'
+                '    ]\n'
+                '  },\n'
+                '  "feedback": "ONE sentence stating intent, e.g. \'Ready to build this — just need a few details:\' NO greetings, NO restating the task title",\n'
+                '  "reason": "internal reason",\n'
+                '  "approach": "Detailed step-by-step plan: \'1. Set up project structure with X. 2. Implement Y using Z. 3. Add tests for A. 4. Deploy to B.\' Be concrete and technical."\n'
+                '}'
+            )
+
+        result = llm_json(system_prompt, user_prompt)
+
+        # Hard override for follow-up: if the poster answered our questions,
+        # we MUST claim regardless of what the LLM said.
+        if has_answered_questions:
+            result["should_claim"] = True
+            result["confidence"] = "high"
+            if not result.get("feedback"):
+                result["feedback"] = "Got it — starting on this right away."
+            # Clear any lingering questions the LLM may have hallucinated
+            eval_obj = result.get("evaluation")
+            if isinstance(eval_obj, dict):
+                eval_obj["questions"] = []
+        else:
+            # Initial evaluation: NEVER claim — feedback only
+            result["should_claim"] = False
+            # Ensure there are questions (if LLM forgot them)
+            eval_obj = result.get("evaluation")
+            if isinstance(eval_obj, dict) and not eval_obj.get("questions"):
+                # Force default questions so the poster has something to answer
+                eval_obj["questions"] = [
+                    {"id": "q1", "text": "Do you need user accounts and login?", "type": "yes_no"},
+                    {"id": "q2", "text": "What vibe are you going for with the design?", "type": "multiple_choice",
+                     "options": ["Minimal & clean", "Bold & colorful", "Dark & sleek", "No preference"]},
+                    {"id": "q3", "text": "Describe what the main page should look like in your own words", "type": "text_input",
+                     "placeholder": "e.g. A list of items with a search bar, each showing a thumbnail..."},
+                    {"id": "q4", "text": "How polished should the final product be?", "type": "scale",
+                     "scale_min": 1, "scale_max": 5, "scale_labels": ["Quick prototype", "Production-ready"]},
+                ]
 
         # Ensure evaluation exists — generate context-aware fallback if LLM omitted it
         if not result.get("evaluation") or not isinstance(result.get("evaluation"), dict):
@@ -604,12 +764,23 @@ class AutonomousWorkerAgent:
         # Step 2: Work on accepted claims — generate and submit deliverables
         self._work_on_claimed_tasks()
 
-        # Step 3: Check if we have capacity for new tasks
-        active_claims = self.client.get_my_claims("accepted")
-        active_count = len(active_claims)
+        # Step 3: Check if we have capacity for new tasks.
+        # IMPORTANT: claim status stays "accepted" forever — even after the task is
+        # "delivered" or "completed". So we must count by TASK status, not claim status.
+        # Only tasks in "claimed" or "in_progress" still have active work remaining.
+        # "delivered" = agent submitted, waiting for poster review → slot is free.
+        # "completed" / "cancelled" = fully done → slot is free.
+        try:
+            all_my_tasks = self.client.get_my_tasks()
+            active_count = sum(
+                1 for t in all_my_tasks
+                if t.get("status") in ("claimed", "in_progress")
+            )
+        except Exception:
+            active_count = 0
 
         if active_count >= MAX_CONCURRENT_TASKS:
-            log_wait(f"Working on {active_count} task(s), at capacity — skipping new task browse")
+            log_wait(f"Working on {active_count} active task(s), at capacity — skipping new task browse")
             return
 
         # Step 4: Browse for new open tasks
@@ -692,68 +863,90 @@ class AutonomousWorkerAgent:
                 log_warn(traceback.format_exc().strip().splitlines()[-1])
                 continue
 
-            # Always post structured evaluation feedback (for ALL tasks, not just skipped)
-            feedback = evaluation.get("feedback", "").strip().strip("\"'")
-            if len(my_remarks) < MAX_REMARKS_PER_TASK and feedback:
-                try:
-                    remark_payload = {"remark": feedback}
-                    eval_data = evaluation.get("evaluation", {})
-                    if eval_data and isinstance(eval_data, dict):
-                        questions = []
-                        for idx, q in enumerate(eval_data.get("questions", [])[:8]):
-                            if not isinstance(q, dict) or not q.get("text"):
-                                continue
-                            qtype = q.get("type", "multiple_choice")
-                            entry = {
-                                "id": q.get("id", f"q{idx}"),
-                                "text": q["text"],
-                                "type": qtype,
-                            }
-                            if qtype == "multiple_choice":
-                                opts = q.get("options", [])
-                                if len(opts) < 2:
-                                    continue
-                                entry["options"] = opts[:6]
-                            elif qtype == "text_input":
-                                entry["placeholder"] = q.get("placeholder", "Type your answer...")
-                            elif qtype == "scale":
-                                entry["scale_min"] = q.get("scale_min", 1)
-                                entry["scale_max"] = q.get("scale_max", 5)
-                                entry["scale_labels"] = q.get("scale_labels", ["Low", "High"])
-                            # yes_no needs no extra fields
-                            questions.append(entry)
+            # ── Two-phase feedback/claim logic ──
+            # Phase 1 (initial / no answers yet): Post feedback with questions, do NOT claim.
+            # Phase 2 (follow-up / poster answered): Skip remark, just claim.
+            # Determine if poster has answered our questions
+            has_answered_questions = False
+            for r in my_remarks:
+                eval_data = r.get("evaluation")
+                if eval_data:
+                    for q in eval_data.get("questions", []):
+                        if q.get("answer"):
+                            has_answered_questions = True
+                            break
+                if has_answered_questions:
+                    break
+            # Also treat poster free-form messages as answers
+            if not has_answered_questions and conv_messages:
+                poster_msgs = [m for m in conv_messages if m.get("sender_type") == "poster" and m.get("message_type") == "text"]
+                if poster_msgs:
+                    has_answered_questions = True
 
-                        remark_payload["evaluation"] = {
-                            "score": int(eval_data.get("score", 5)),
-                            "strengths": [s for s in eval_data.get("strengths", [])[:5] if s],
-                            "concerns": [c for c in eval_data.get("concerns", [])[:5] if c],
-                            "questions": questions,
-                        }
-                    log_think(f"  Posting evaluation (score={eval_data.get('score')}, "
-                             f"{len(remark_payload.get('evaluation', {}).get('questions', []))} Qs)")
-                    resp = self.client.post(f"/api/v1/tasks/{task_id}/remarks", remark_payload)
-                    if resp.get("ok"):
-                        log_ok(f"  Evaluation posted to #{task_id}")
-                    else:
-                        err_info = resp.get("error", {})
-                        err_msg = err_info.get("message", str(err_info)) if isinstance(err_info, dict) else str(err_info)
-                        log_warn(f"  Failed to post evaluation to #{task_id}: {err_msg}")
-                except Exception as e:
-                    log_warn(f"Failed to send evaluation to #{task_id}: {e}")
-
-            if not is_claimed and evaluation.get("should_claim") and evaluation.get("confidence") in ("high", "medium"):
-                if best_task is None or evaluation.get("proposed_credits", 0) > (best_evaluation or {}).get("proposed_credits", 0):
-                    best_task = detail
-                    best_evaluation = evaluation
-                    log_think(f"  -> Good fit! confidence={evaluation.get('confidence')}, "
-                             f"bid={evaluation.get('proposed_credits')}")
-            elif is_claimed:
-                log_think(f"  -> Already claimed, posted follow-up feedback")
-                self.attempted_tasks[task_id] = datetime.now(timezone.utc)
+            if has_answered_questions:
+                # PHASE 2: Poster answered — skip remark, proceed directly to claim
+                log_think(f"  Poster answered questions for #{task_id} — proceeding to claim (no new remark)")
+                if not is_claimed and evaluation.get("should_claim") and evaluation.get("confidence") in ("high", "medium"):
+                    if best_task is None or evaluation.get("proposed_credits", 0) > (best_evaluation or {}).get("proposed_credits", 0):
+                        best_task = detail
+                        best_evaluation = evaluation
+                        log_think(f"  -> Good fit! confidence={evaluation.get('confidence')}, "
+                                 f"bid={evaluation.get('proposed_credits')}")
+                elif is_claimed:
+                    log_think(f"  -> Already claimed #{task_id}")
+                    self.attempted_tasks[task_id] = datetime.now(timezone.utc)
             else:
-                log_think(f"  -> Skipping: {evaluation.get('reason', 'not a good fit')[:80]}")
+                # PHASE 1: Initial evaluation — post feedback with questions, do NOT claim
+                feedback = evaluation.get("feedback", "").strip().strip("\"'")
+                if len(my_remarks) < MAX_REMARKS_PER_TASK and feedback:
+                    try:
+                        remark_payload = {"remark": feedback}
+                        eval_data = evaluation.get("evaluation", {})
+                        if eval_data and isinstance(eval_data, dict):
+                            questions = []
+                            for idx, q in enumerate(eval_data.get("questions", [])[:8]):
+                                if not isinstance(q, dict) or not q.get("text"):
+                                    continue
+                                qtype = q.get("type", "multiple_choice")
+                                entry = {
+                                    "id": q.get("id", f"q{idx}"),
+                                    "text": q["text"],
+                                    "type": qtype,
+                                }
+                                if qtype == "multiple_choice":
+                                    opts = q.get("options", [])
+                                    if len(opts) < 2:
+                                        continue
+                                    entry["options"] = opts[:6]
+                                elif qtype == "text_input":
+                                    entry["placeholder"] = q.get("placeholder", "Type your answer...")
+                                elif qtype == "scale":
+                                    entry["scale_min"] = q.get("scale_min", 1)
+                                    entry["scale_max"] = q.get("scale_max", 5)
+                                    entry["scale_labels"] = q.get("scale_labels", ["Low", "High"])
+                                # yes_no needs no extra fields
+                                questions.append(entry)
 
-                # CRITICAL: Mark with current time AFTER posting so we don't re-evaluate next tick
+                            remark_payload["evaluation"] = {
+                                "score": int(eval_data.get("score", 5)),
+                                "strengths": [s for s in eval_data.get("strengths", [])[:5] if s],
+                                "concerns": [c for c in eval_data.get("concerns", [])[:5] if c],
+                                "questions": questions,
+                            }
+                        log_think(f"  Posting feedback only (score={eval_data.get('score')}, "
+                                 f"{len(remark_payload.get('evaluation', {}).get('questions', []))} Qs) — no claim yet")
+                        resp = self.client.post(f"/api/v1/tasks/{task_id}/remarks", remark_payload)
+                        if resp.get("ok"):
+                            log_ok(f"  Feedback posted to #{task_id} (waiting for poster to answer)")
+                        else:
+                            err_info = resp.get("error", {})
+                            err_msg = err_info.get("message", str(err_info)) if isinstance(err_info, dict) else str(err_info)
+                            log_warn(f"  Failed to post feedback to #{task_id}: {err_msg}")
+                    except Exception as e:
+                        log_warn(f"Failed to send feedback to #{task_id}: {e}")
+
+                # Do NOT claim — wait for poster to answer
+                log_think(f"  -> Feedback posted, waiting for poster to answer before claiming")
                 self.attempted_tasks[task_id] = datetime.now(timezone.utc)
 
         if not best_task:
@@ -841,33 +1034,84 @@ class AutonomousWorkerAgent:
                     log_think(f"  Task #{task_id}: already has {len(submitted)} submitted deliverable(s), waiting for review")
                     continue  # already submitted, waiting for review
 
-                log_act(f"Generating deliverable for task #{task_id}: \"{task.get('title', '')[:40]}\"")
+                log_act(f"Running CI/CD pipeline for task #{task_id}: \"{task.get('title', '')[:40]}\"")
 
-                try:
-                    content = self.brain.generate_deliverable(task)
-                except Exception as e:
-                    log_err(f"Deliverable generation FAILED for task #{task_id}: {e}")
-                    log_err(f"  Traceback: {traceback.format_exc().strip().splitlines()[-1]}")
-                    continue
+                # Use the real coder → deploy pipeline (same as swarm.py orchestrator)
+                task_dir = WORKSPACE_DIR / f"task_{task_id}"
+                task_dir.mkdir(parents=True, exist_ok=True)
 
-                if not content or len(content.strip()) < 10:
-                    log_err(f"Deliverable content is empty or too short ({len(content)} chars) for task #{task_id}")
-                    continue
+                pipeline_stage = _get_pipeline_stage(task_dir)
+                log_think(f"  Task #{task_id}: pipeline stage = '{pipeline_stage}'")
 
-                log_act(f"Submitting deliverable ({len(content)} chars)...")
-                try:
-                    del_resp = self.client.submit_deliverable(task_id, content)
-                except Exception as e:
-                    log_err(f"Deliverable submission request FAILED for task #{task_id}: {e}")
-                    log_err(f"  Traceback: {traceback.format_exc().strip().splitlines()[-1]}")
-                    continue
+                # ── CODER stage ────────────────────────────────────────────
+                if pipeline_stage == "coding":
+                    if not _acquire_lock(task_dir, "Coder"):
+                        log_warn(f"Task #{task_id} is locked by another agent — skipping")
+                        continue
+                    try:
+                        result = _run_pipeline_agent(
+                            CODER_SCRIPT, self.client.api_key, self.client.base_url, task_id, timeout=7200
+                        )
+                    finally:
+                        _release_lock(task_dir)
 
-                if del_resp.get("ok"):
-                    del_id = del_resp["data"]["id"]
-                    log_ok(f"Deliverable #{del_id} submitted for task #{task_id}!")
-                else:
-                    err = (del_resp.get("error") or {})
-                    log_err(f"Deliverable submission REJECTED for task #{task_id}: code={err.get('code', '?')} msg={err.get('message', '')[:200]}")
+                    action = result.get("action", "")
+                    if action in ("coded", "done"):
+                        log_ok(f"Coder Agent finished for task #{task_id} — now deploying")
+                        pipeline_stage = _get_pipeline_stage(task_dir)  # re-read (coder updates it)
+                    elif action in ("error", "timeout", "no_result"):
+                        log_err(f"Coder Agent failed for task #{task_id}: {action}")
+                        continue
+                    else:
+                        log_think(f"Coder Agent result: {action} — re-checking stage")
+                        pipeline_stage = _get_pipeline_stage(task_dir)
+
+                # ── TESTER stage ───────────────────────────────────────────
+                if pipeline_stage == "testing":
+                    if not _acquire_lock(task_dir, "Tester"):
+                        log_warn(f"Task #{task_id} test locked — skipping")
+                        continue
+                    try:
+                        result = _run_pipeline_agent(
+                            TESTER_SCRIPT, self.client.api_key, self.client.base_url, task_id, timeout=7200
+                        )
+                    finally:
+                        _release_lock(task_dir)
+
+                    action = result.get("action", "")
+                    if action in ("passed", "deploying"):
+                        log_ok(f"Tests passed for task #{task_id} — advancing to deploy")
+                        pipeline_stage = _get_pipeline_stage(task_dir)
+                    elif action == "retry_coding":
+                        log_warn(f"Tests failed for task #{task_id} — cycling back to coder")
+                        pipeline_stage = _get_pipeline_stage(task_dir)
+                    elif action in ("error", "timeout", "no_result"):
+                        log_err(f"Tester Agent failed for task #{task_id}: {action}")
+                        continue
+                    else:
+                        log_think(f"Tester Agent result: {action}")
+                        pipeline_stage = _get_pipeline_stage(task_dir)
+
+                # ── DEPLOY stage ───────────────────────────────────────────
+                if pipeline_stage == "deploying":
+                    if not _acquire_lock(task_dir, "Deployer"):
+                        log_warn(f"Task #{task_id} deploy locked — skipping")
+                        continue
+                    try:
+                        result = _run_pipeline_agent(
+                            DEPLOY_SCRIPT, self.client.api_key, self.client.base_url, task_id, timeout=7200
+                        )
+                    finally:
+                        _release_lock(task_dir)
+
+                    action = result.get("action", "")
+                    if action == "delivered":
+                        del_id = result.get("deliverable_id", "?")
+                        log_ok(f"Deliverable #{del_id} submitted via Deploy Agent for task #{task_id}!")
+                    elif action in ("error", "timeout", "no_result"):
+                        log_err(f"Deploy Agent failed for task #{task_id}: {action} — {result.get('error', '')[:120]}")
+                    else:
+                        log_think(f"Deploy Agent result: {action} — will retry next tick")
 
             elif status == "completed":
                 if task_id in self.claimed_task_ids:
@@ -895,23 +1139,29 @@ class AutonomousWorkerAgent:
                 if revision_requested:
                     last = revision_requested[-1]
                     feedback = last.get("revision_notes", "Please improve the deliverable.")
-
                     log_act(f"Revision requested for task #{task_id}: \"{feedback[:60]}\"")
 
-                    try:
-                        improved = self.brain.handle_revision(task, last, feedback)
-                    except Exception as e:
-                        log_err(f"Revision generation failed: {e}")
+                    # Dispatch Revision Agent sub-process (mirrors swarm.py)
+                    task_dir = WORKSPACE_DIR / f"task_{task_id}"
+                    task_dir.mkdir(parents=True, exist_ok=True)
+                    if not _acquire_lock(task_dir, "Revision"):
+                        log_warn(f"Task #{task_id} revision locked — skipping")
                         continue
+                    try:
+                        result = _run_pipeline_agent(
+                            REVISION_SCRIPT,
+                            self.client.api_key,
+                            self.client.base_url,
+                            task_id,
+                            timeout=3600,
+                        )
+                    finally:
+                        _release_lock(task_dir)
 
-                    log_act(f"Submitting revised deliverable ({len(improved)} chars)...")
-                    del_resp = self.client.submit_deliverable(task_id, improved)
-
-                    if del_resp.get("ok"):
+                    if result.get("action") == "revised":
                         log_ok(f"Revision submitted for task #{task_id}")
                     else:
-                        err = (del_resp.get("error") or {})
-                        log_warn(f"Revision submission failed: {err.get('message', '')[:100]}")
+                        log_warn(f"Revision Agent result: {result.get('action', '?')} for task #{task_id}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

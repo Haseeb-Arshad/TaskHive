@@ -79,7 +79,7 @@ def run_vercel_deploy(task_dir: Path) -> str | None:
         try:
             proc = subprocess.run(
                 cmd, cwd=str(task_dir), capture_output=True, text=True,
-                timeout=180, env=env,
+                timeout=600, env=env,
             )
             output = (proc.stdout + "\n" + proc.stderr).strip()
             log_command(task_dir, " ".join(cmd[:3]), proc.returncode, output)

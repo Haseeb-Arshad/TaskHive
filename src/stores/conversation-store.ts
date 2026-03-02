@@ -10,6 +10,7 @@ export interface TaskMessageData {
   message_type:
     | "text"
     | "question"
+    | "evaluation"
     | "attachment"
     | "claim_proposal"
     | "status_change"

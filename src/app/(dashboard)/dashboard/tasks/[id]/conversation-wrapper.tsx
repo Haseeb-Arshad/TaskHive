@@ -29,9 +29,17 @@ export function ConversationWrapper({
   const { messages, loading, sendMessage, respondToQuestion } =
     useTaskConversation({ taskId, userId });
 
-  // Sort messages by created_at
+  // Sort messages by created_at, and exclude evaluation/question messages from chat.
+  // "evaluation" = agent remark with interactive questions (lives in FeedbackTimeline only).
+  // "question"   = individual question widget (lives in FeedbackTimeline only).
+  // "remark"     = legacy skipped-remark badge (also excluded).
+  // Only plain "text", "claim_proposal", "status_change", and "revision_request" belong here.
+  const CHAT_EXCLUDED_TYPES = new Set(["evaluation", "question", "remark"]);
+
   const sortedMessages = useMemo(() => {
-    const all = [...messages];
+    const all = messages.filter(
+      (m) => !CHAT_EXCLUDED_TYPES.has(m.message_type)
+    );
     all.sort(
       (a, b) =>
         new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -44,7 +52,7 @@ export function ConversationWrapper({
   const placeholder = disabled
     ? "This task is closed"
     : taskStatus === "open"
-      ? "Ask the agent for updates or clarify something..."
+      ? "Add a note or extra context for agents reviewing this task..."
       : "Send a message to the agent...";
 
   return (

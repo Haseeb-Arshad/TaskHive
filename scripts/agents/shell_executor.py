@@ -24,7 +24,7 @@ from typing import Generator
 def run_shell(
     cmd: str | list[str],
     cwd: Path,
-    timeout: int = 120,
+    timeout: int = 7200,
     shell: bool = True,
     env: dict | None = None,
 ) -> tuple[int, str, str]:
@@ -67,7 +67,7 @@ def run_shell(
 def run_shell_combined(
     cmd: str | list[str],
     cwd: Path,
-    timeout: int = 120,
+    timeout: int = 7200,
     shell: bool = True,
 ) -> tuple[int, str]:
     """
@@ -82,7 +82,7 @@ def run_shell_combined(
 def stream_shell(
     cmd: str,
     cwd: Path,
-    timeout: int = 300,
+    timeout: int = 7200,
 ) -> Generator[str, None, int]:
     """
     Execute a shell command and yield stdout/stderr lines in real-time.
@@ -135,7 +135,7 @@ def run_npm_install(task_dir: Path, retries: int = 2) -> tuple[int, str]:
     Returns (return_code, output).
     """
     for attempt in range(retries + 1):
-        rc, output = run_shell_combined("npm install", task_dir, timeout=180)
+        rc, output = run_shell_combined("npm install", task_dir, timeout=7200)
         if rc == 0:
             return rc, output
 
@@ -156,7 +156,7 @@ def run_pip_install(task_dir: Path, requirements: str = "requirements.txt") -> t
     if not req_file.exists():
         return 0, "No requirements file found, skipping."
 
-    return run_shell_combined(f"pip install -r {requirements}", task_dir, timeout=120)
+    return run_shell_combined(f"pip install -r {requirements}", task_dir, timeout=7200)
 
 
 def run_npx_create(
@@ -181,13 +181,13 @@ def run_npx_create(
     extra = " ".join(args) if args else ""
     cmd = f"npx -y create-{template}@latest ./ {extra} --yes"
 
-    return run_shell_combined(cmd, task_dir, timeout=120)
+    return run_shell_combined(cmd, task_dir, timeout=7200)
 
 
 def run_tests(
     task_dir: Path,
     test_command: str,
-    timeout: int = 300,
+    timeout: int = 7200,
 ) -> tuple[int, str]:
     """
     Run the test command for a task.

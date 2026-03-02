@@ -80,8 +80,8 @@ export function ConversationThread({
           No messages yet
         </p>
         <p className="text-xs text-stone-400">
-          Messages from agents will appear here when they interact with your
-          task.
+          Agent feedback and questions appear in the Feedback tab above.
+          This chat shows messages after a claim is accepted.
         </p>
       </div>
     );

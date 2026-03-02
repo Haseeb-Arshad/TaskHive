@@ -37,7 +37,7 @@ KIMI_KEY = os.environ.get("Kimi_Key", "") or os.environ.get("KIMI_KEY", "")
 MOONSHOT_API_KEY = os.environ.get("MOONSHOT_API_KEY", "")
 OPENROUTER_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
-DEFAULT_CAPABILITIES = ["python", "javascript", "typescript", "sql", "api-design", "data-processing"]
+DEFAULT_CAPABILITIES = ["nextjs", "react", "vite", "javascript", "typescript", "tailwindcss", "frontend", "web-development"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -147,17 +147,37 @@ def llm_call(system: str, user: str, max_tokens: int = 2048, provider: str = "ki
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-haiku-4-5-20251001",
+                "model": "claude-sonnet-4-6",
                 "max_tokens": max_tokens,
                 "system": system,
                 "messages": [{"role": "user", "content": user}],
             },
-            timeout=300.0,
+            timeout=3600.0,
         )
         resp.raise_for_status()
         data = resp.json()
         return data["content"][0]["text"]
     
+    elif provider == "claude-sonnet":
+        resp = httpx.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-6",
+                "max_tokens": max_tokens,
+                "system": system,
+                "messages": [{"role": "user", "content": user}],
+            },
+            timeout=3600.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["content"][0]["text"]
+        
     elif provider == "kimi":
         api_key = MOONSHOT_API_KEY or KIMI_KEY
         if not api_key:
@@ -177,7 +197,7 @@ def llm_call(system: str, user: str, max_tokens: int = 2048, provider: str = "ki
                 "temperature": 0.3,
                 "max_tokens": max_tokens,
             },
-            timeout=300.0,
+            timeout=3600.0,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -201,7 +221,7 @@ def llm_call(system: str, user: str, max_tokens: int = 2048, provider: str = "ki
                 "temperature": 0.3,
                 "max_tokens": max_tokens,
             },
-            timeout=120.0,
+            timeout=3600.0,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -215,6 +235,8 @@ def smart_llm_call(system: str, user: str, max_tokens: int = 2048, complexity: s
     """Routes to Kimi/Trinity first, falling back to Claude only if needed or complex."""
     if complexity == "high":
         providers = ["claude", "kimi", "trinity"]
+    elif complexity == "extreme":
+        providers = ["claude-sonnet", "claude", "kimi", "trinity"]
     else:
         providers = ["kimi", "trinity", "claude"]
     
@@ -230,19 +252,110 @@ def smart_llm_call(system: str, user: str, max_tokens: int = 2048, complexity: s
     return ""
 
 
-def llm_json(system: str, user: str, max_tokens: int = 1024, complexity: str = "routine") -> dict:
-    """LLM call that returns parsed JSON, using smart routing."""
+def _clean_json(raw: str) -> dict:
+    """Parse JSON with progressive fallback strategies."""
+    # Strategy 1: direct parse
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+
+    # Strategy 2: strip trailing commas before } or ]
+    cleaned = re.sub(r',(\s*[}\]])', r'\1', raw)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    # Strategy 3: replace unescaped literal newlines inside JSON string values.
+    # This handles the case where LLM puts a real newline inside a quoted string
+    # instead of \n, which is invalid JSON.
+    def _fix_string_newlines(s: str) -> str:
+        result = []
+        in_string = False
+        escape_next = False
+        for ch in s:
+            if escape_next:
+                result.append(ch)
+                escape_next = False
+                continue
+            if ch == '\\':
+                escape_next = True
+                result.append(ch)
+                continue
+            if ch == '"':
+                in_string = not in_string
+                result.append(ch)
+                continue
+            if in_string and ch == '\n':
+                result.append('\\n')
+                continue
+            if in_string and ch == '\r':
+                result.append('\\r')
+                continue
+            result.append(ch)
+        return ''.join(result)
+
+    try:
+        return json.loads(_fix_string_newlines(cleaned))
+    except json.JSONDecodeError as e:
+        raise e
+
+
+def _extract_json_block(raw: str) -> str | None:
+    """
+    Extract the outermost JSON object from a string.
+    Handles markdown code fences (```json ... ```) and finds the correct
+    closing brace by counting depth rather than using rfind.
+    """
+    # Strip markdown code fences first
+    fence_match = re.search(r'```(?:json)?\s*\n?({.*?})\s*```', raw, re.DOTALL)
+    if fence_match:
+        return fence_match.group(1)
+
+    # Find first '{' and walk forward counting depth
+    start = raw.find('{')
+    if start == -1:
+        return None
+
+    depth = 0
+    in_string = False
+    escape_next = False
+    for i, ch in enumerate(raw[start:], start):
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == '\\' and in_string:
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                return raw[start:i + 1]
+    return None
+
+
+def llm_json(system: str, user: str, max_tokens: int = 2048, complexity: str = "routine") -> dict:
+    """LLM call that returns parsed JSON, using smart routing and robust parsing."""
     raw = smart_llm_call(system, user, max_tokens=max_tokens, complexity=complexity)
     if not raw:
         return {}
-    first_brace = raw.find("{")
-    last_brace = raw.rfind("}")
-    if first_brace != -1 and last_brace != -1:
+
+    json_str = _extract_json_block(raw)
+    if json_str:
         try:
-            return json.loads(raw[first_brace : last_brace + 1])
+            return _clean_json(json_str)
         except Exception as e:
             log_err(f"JSON extract failed: {e}")
             return {"_raw": raw}
+
     return {"_raw": raw}
 
 
@@ -270,7 +383,7 @@ def kimi_enhance_prompt(prompt: str) -> str:
                 "temperature": 0.3,
                 "max_tokens": 4000,
             },
-            timeout=300.0,
+            timeout=3600.0,
         )
         data = resp.json()
         if "choices" in data and data["choices"]:
@@ -309,9 +422,9 @@ def trinity_enhance_prompt(prompt: str) -> str:
                     {"role": "user", "content": prompt},
                 ],
                 "temperature": 0.3,
-                "max_tokens": 3000,
+                "max_tokens": 10000,
             },
-            timeout=120.0,
+            timeout=3600.0,
         )
         data = resp.json()
         if "choices" in data and data["choices"]:
@@ -348,7 +461,7 @@ class TaskHiveClient:
     def __init__(self, base_url: str, api_key: str = None):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
-        self.http = httpx.Client(base_url=self.base_url, timeout=60.0)
+        self.http = httpx.Client(base_url=self.base_url, timeout=3600.0)
         self.agent_id = None
         self.agent_name = None
 
@@ -364,7 +477,7 @@ class TaskHiveClient:
             self.http.close()
         except Exception:
             pass
-        self.http = httpx.Client(base_url=self.base_url, timeout=60.0)
+        self.http = httpx.Client(base_url=self.base_url, timeout=3600.0)
 
     def _request_with_retry(self, method: str, path: str, **kwargs) -> dict:
         """Execute an HTTP request with automatic retry on transient failures."""
