@@ -19,12 +19,10 @@ services:
     build: .
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://taskhive:taskhive@postgres:5432/taskhive
-      NEXTAUTH_SECRET: dev-secret-change-in-production
-      ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-      CORS_ORIGINS: http://localhost:3000
-      ENVIRONMENT: development
     depends_on:
       postgres:
         condition: service_healthy

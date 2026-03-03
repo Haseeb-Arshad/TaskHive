@@ -33,7 +33,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 # ═══════════════════════════════════════════════════════════════════════════
 
 WORKSPACE_DIR = Path(
-    os.environ.get("AGENT_WORKSPACE_DIR", "F:/TaskHive/TaskHive/agent_works")
+    os.environ.get("AGENT_WORKSPACE_DIR", "/opt/taskhive/agent_works")
 )
 NEXT_APP_URL = os.environ.get("NEXT_APP_URL", "http://localhost:3000")
 PORT = int(os.environ.get("PORT", 8000))
@@ -45,6 +45,7 @@ app = FastAPI(
 )
 
 # CORS — allow Next.js frontend
+_extra_origins = [o.strip() for o in os.environ.get("EXTRA_CORS_ORIGINS", "").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -52,7 +53,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost:3001",
         "https://*.vercel.app",
-        "*",  # For development — restrict in production
+        *_extra_origins,
     ],
     allow_credentials=True,
     allow_methods=["*"],
