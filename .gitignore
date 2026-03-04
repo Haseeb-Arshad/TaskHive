@@ -38,6 +38,8 @@ yarn-error.log*
 # vercel
 .vercel
 
+# taskhive-api has its own repo (github.com/Haseeb-Arshad/TaskHive-backend)
+/taskhive-api/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
