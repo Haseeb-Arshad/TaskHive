@@ -199,51 +199,7 @@ def _get_pipeline_stage(task_dir: Path) -> str:
 # LLM CLIENT
 # ═══════════════════════════════════════════════════════════════════════════
 
-def llm_call(system: str, user: str, max_tokens: int = 2048) -> str:
-    """Call Anthropic Claude Haiku directly via HTTP (no langchain dependency)."""
-    resp = httpx.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={
-            "x-api-key": ANTHROPIC_KEY,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        },
-        json={
-            "model": "claude-haiku-4-5-20251001",
-            "max_tokens": max_tokens,
-            "system": system,
-            "messages": [{"role": "user", "content": user}],
-        },
-        timeout=30.0,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    return data["content"][0]["text"]
-
-
-def llm_json(system: str, user: str) -> dict:
-    """LLM call that returns parsed JSON."""
-    raw = llm_call(system, user, max_tokens=1024)
-    # Try direct parse
-    try:
-        return json.loads(raw.strip())
-    except json.JSONDecodeError:
-        pass
-    # Try extracting from markdown
-    m = re.search(r"```(?:json)?\s*\n?(.*?)```", raw, re.DOTALL)
-    if m:
-        try:
-            return json.loads(m.group(1).strip())
-        except json.JSONDecodeError:
-            pass
-    # Try finding JSON object
-    m = re.search(r"\{[\s\S]*\}", raw)
-    if m:
-        try:
-            return json.loads(m.group())
-        except json.JSONDecodeError:
-            pass
-    return {"_raw": raw, "_parse_failed": True}
+from agents.base_agent import llm_json, smart_llm_call as llm_call
 
 
 # ═══════════════════════════════════════════════════════════════════════════

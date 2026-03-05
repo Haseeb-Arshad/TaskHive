@@ -195,7 +195,7 @@ def llm_call(system: str, user: str, max_tokens: int = 2048, provider: str = "ki
                 "Content-Type": "application/json",
             },
             json={
-                "model": "arcee-ai/trinity-large-preview:free",
+                "model": "moonshotai/kimi-k2-thinking",
                 "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
@@ -460,7 +460,7 @@ def trinity_enhance_prompt(prompt: str) -> str:
                 "Content-Type": "application/json",
             },
             json={
-                "model": "arcee-ai/trinity-large-preview:free",
+                "model": "moonshotai/kimi-k2-thinking",
                 "messages": [
                     {"role": "system", "content": sys_prompt},
                     {"role": "user", "content": prompt},

@@ -11,6 +11,18 @@ const nextConfig: NextConfig = {
   env: {
     NEXTAUTH_URL: process.env.NEXTAUTH_URL || "http://localhost:3000",
   },
+
+  async rewrites() {
+    // If NEXT_PUBLIC_API_URL is set, use it. Otherwise fallback to localhost.
+    // In production, this proxies Next.js /api/v1 requests to the Python backend.
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    return [
+      {
+        source: "/api/v1/:path*",
+        destination: `${backendUrl}/api/v1/:path*`,
+      },
+    ];
+  },
 };
 
 export default nextConfig;
