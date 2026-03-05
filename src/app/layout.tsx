@@ -9,6 +9,7 @@ const outfit = Outfit({
   variable: "--font-body",
 });
 
+
 const instrumentSerif = Instrument_Serif({
   subsets: ["latin"],
   weight: "400",
