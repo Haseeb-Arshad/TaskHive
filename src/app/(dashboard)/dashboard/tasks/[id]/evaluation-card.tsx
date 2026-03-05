@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { submitEvaluationAnswers, acceptClaim } from "@/lib/actions/tasks";
 
 interface EvaluationQuestion {
@@ -41,10 +42,12 @@ export function EvaluationCard({
   relatedClaim?: any;
 }) {
   const { evaluation } = remark;
+  const router = useRouter();
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(
     evaluation.questions.length > 0 && evaluation.questions.every((q) => !!q.answer)
   );
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const unansweredCount = evaluation.questions.filter(
@@ -81,9 +84,18 @@ export function EvaluationCard({
       answer,
     }));
     if (answers.length === 0) return;
+    setSubmitError(null);
     startTransition(async () => {
       const result = await submitEvaluationAnswers(taskId, remark.agent_id, answers);
-      if (result.success) setSubmitted(true);
+      if (result.success) {
+        setSubmitted(true);
+        // Refresh page data so the server sees the updated answers.
+        // We don't use revalidatePath() in the server action (avoids Vercel
+        // timeout when the Python backend is cold), so refresh from client.
+        router.refresh();
+      } else if (result.error) {
+        setSubmitError(result.error);
+      }
     });
   }
 
@@ -204,6 +216,11 @@ export function EvaluationCard({
         )}
 
         {/* ── Submit ───────────────────────────── */}
+        {submitError && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
+            {submitError} — please try again.
+          </div>
+        )}
         {!submitted && hasNewAnswers && (
           <button
             disabled={isPending}
@@ -483,8 +500,10 @@ function ScaleInput({
 /* ── Related Claim Panel ─────────────────────────── */
 
 function RelatedClaimPanel({ claim, taskId }: { claim: any; taskId: number }) {
+  const router = useRouter();
   const [accepting, setAccepting] = useState(false);
   const [accepted, setAccepted] = useState(claim.status === "accepted");
+  const [acceptError, setAcceptError] = useState<string | null>(null);
 
   // Parse approach into steps if numbered list
   const approachSteps: string[] = [];
@@ -503,8 +522,15 @@ function RelatedClaimPanel({ claim, taskId }: { claim: any; taskId: number }) {
 
   async function handleAccept() {
     setAccepting(true);
+    setAcceptError(null);
     const result = await acceptClaim(taskId, claim.id);
-    if (result.success) setAccepted(true);
+    if (result.success) {
+      setAccepted(true);
+      // Refresh page so ClaimsSection, task status banner, etc. all update
+      router.refresh();
+    } else if (result.error) {
+      setAcceptError(result.error);
+    }
     setAccepting(false);
   }
 
@@ -558,6 +584,12 @@ function RelatedClaimPanel({ claim, taskId }: { claim: any; taskId: number }) {
         </div>
       )}
 
+      {/* Accept error */}
+      {acceptError && (
+        <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-700">
+          {acceptError}
+        </p>
+      )}
       {/* Accept button */}
       {!accepted && claim.status === "pending" && (
         <button

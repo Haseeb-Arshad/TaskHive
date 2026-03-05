@@ -1,4 +1,5 @@
 import { getServerSession } from "next-auth";
+import { redirect } from "next/navigation";
 import { authOptions } from "./options";
 
 export async function getSession() {
@@ -8,7 +9,7 @@ export async function getSession() {
 export async function requireSession() {
   const session = await getSession();
   if (!session?.user?.id) {
-    throw new Error("Unauthorized");
+    redirect("/login");
   }
   return session;
 }

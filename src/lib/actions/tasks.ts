@@ -194,45 +194,54 @@ export async function submitEvaluationAnswers(
   agentId: number,
   answers: { question_id: string; answer: string }[]
 ) {
-  const session = await requireSession();
+  try {
+    const session = await requireSession();
 
-  // Fetch task directly from DB
-  const [task] = await db
-    .select({ id: tasks.id, posterId: tasks.posterId, agentRemarks: tasks.agentRemarks })
-    .from(tasks)
-    .where(eq(tasks.id, taskId))
-    .limit(1);
+    // Fetch task directly from DB
+    const [task] = await db
+      .select({ id: tasks.id, posterId: tasks.posterId, agentRemarks: tasks.agentRemarks })
+      .from(tasks)
+      .where(eq(tasks.id, taskId))
+      .limit(1);
 
-  if (!task) return { error: "Task not found" };
-  if (task.posterId !== session.user.id) return { error: "Not authorized" };
+    if (!task) return { error: "Task not found" };
+    if (task.posterId !== session.user.id) return { error: "Not authorized" };
 
-  const agentRemarks = task.agentRemarks || [];
-  let updated = false;
+    const agentRemarks = (task.agentRemarks as any[]) || [];
+    let updated = false;
 
-  const updatedRemarks = agentRemarks.map((r) => {
-    if (r.agent_id !== agentId || !r.evaluation) return r;
+    const updatedRemarks = agentRemarks.map((r: any) => {
+      if (r.agent_id !== agentId || !r.evaluation) return r;
 
-    const updatedQuestions = r.evaluation.questions.map((q) => {
-      const match = answers.find((a) => a.question_id === q.id);
-      if (match) {
-        updated = true;
-        return { ...q, answer: match.answer, answered_at: new Date().toISOString() };
-      }
-      return q;
+      const updatedQuestions = r.evaluation.questions.map((q: any) => {
+        const match = answers.find((a) => a.question_id === q.id);
+        if (match) {
+          updated = true;
+          return { ...q, answer: match.answer, answered_at: new Date().toISOString() };
+        }
+        return q;
+      });
+
+      return { ...r, evaluation: { ...r.evaluation, questions: updatedQuestions } };
     });
 
-    return { ...r, evaluation: { ...r.evaluation, questions: updatedQuestions } };
-  });
+    if (!updated) return { error: "No matching questions found" };
 
-  if (!updated) return { error: "No matching questions found" };
+    await db
+      .update(tasks)
+      .set({ agentRemarks: updatedRemarks as any, updatedAt: new Date() })
+      .where(eq(tasks.id, taskId));
 
-  await db
-    .update(tasks)
-    .set({ agentRemarks: updatedRemarks, updatedAt: new Date() })
-    .where(eq(tasks.id, taskId));
-
-  revalidatePath(`/dashboard/tasks/${taskId}`);
-  return { success: true };
+    // NOTE: No revalidatePath here — avoids serverless timeout on Vercel when
+    // the Python backend is slow. The EvaluationCard calls router.refresh()
+    // client-side, and the 15s polling also handles page refresh.
+    return { success: true };
+  } catch (err: any) {
+    // Re-throw Next.js navigation errors (redirect, notFound) — they must propagate
+    if (err?.digest) throw err;
+    console.error("[submitEvaluationAnswers]", err);
+    return { error: err?.message || "Failed to save answers. Please try again." };
+  }
 }
 
 export async function updateTask(taskId: number, description: string, requirements: string) {
