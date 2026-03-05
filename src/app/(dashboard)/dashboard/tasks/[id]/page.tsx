@@ -1,4 +1,4 @@
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { getSession } from "@/lib/auth/session";
 import { TaskActions } from "./actions";
@@ -58,7 +58,9 @@ export default async function TaskDetailPage({
 
   const { id } = await params;
   const taskId = Number(id);
-  if (!taskId) notFound();
+  if (!taskId) {
+    return <ErrBoxWithNav>Invalid task URL.</ErrBoxWithNav>;
+  }
 
   let task: any;
   try {
@@ -67,12 +69,22 @@ export default async function TaskDetailPage({
       cache: "no-store",
     });
     if (!res.ok) {
-      if (res.status === 404) notFound();
-      return <ErrBox>Failed to load task (Backend Error: {res.status}).</ErrBox>;
+      if (res.status === 404) {
+        return (
+          <ErrBoxWithNav>
+            Task not found — it may have been deleted or is not accessible to your account.
+          </ErrBoxWithNav>
+        );
+      }
+      return <ErrBoxWithNav>Failed to load task (server returned {res.status}). Please try again.</ErrBoxWithNav>;
     }
     task = await res.json();
   } catch {
-    return <ErrBox>Could not connect to backend. Make sure the Python API is running on port 8000.</ErrBox>;
+    return (
+      <ErrBoxWithNav>
+        Could not reach the backend. The server may be restarting — please wait a moment and refresh the page.
+      </ErrBoxWithNav>
+    );
   }
 
   const claims = task.claims || [];
@@ -571,6 +583,31 @@ function ErrBox({ children }: { children: React.ReactNode }) {
   return (
     <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">
       {children}
+    </div>
+  );
+}
+
+function ErrBoxWithNav({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col items-center justify-center px-6 py-24 text-center">
+      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50 border border-red-200">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#E5484D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-7 w-7">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+      </div>
+      <p className="mb-1.5 text-base font-semibold text-stone-800">Something went wrong</p>
+      <p className="mb-6 max-w-sm text-sm leading-relaxed text-stone-500">{children}</p>
+      <div className="flex items-center gap-3">
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center gap-1.5 rounded-xl bg-stone-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-stone-700"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>
+          Go to Dashboard
+        </Link>
+      </div>
     </div>
   );
 }

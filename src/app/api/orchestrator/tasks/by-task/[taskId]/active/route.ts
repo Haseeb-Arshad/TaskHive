@@ -1,49 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import path from "path";
-import fs from "fs";
 
-// Resolve the agent_works directory (relative to CWD or absolute via env)
-function getWorkspaceDir(): string {
-  return process.env.AGENT_WORKSPACE_DIR || path.join(process.cwd(), "agent_works");
-}
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ taskId: string }> }
 ) {
-  const { taskId: taskIdStr } = await params;
-  const taskId = parseInt(taskIdStr, 10);
-  if (isNaN(taskId)) {
+  const { taskId } = await params;
+  if (!taskId || isNaN(parseInt(taskId, 10))) {
     return NextResponse.json({ ok: false, error: "Invalid task ID" }, { status: 400 });
   }
 
-  const taskDir = path.join(getWorkspaceDir(), `task_${taskId}`);
-  const stateFile = path.join(taskDir, ".swarm_state.json");
+  try {
+    const res = await fetch(
+      `${BACKEND_URL}/orchestrator/tasks/by-task/${taskId}/active`,
+      { next: { revalidate: 0 } }
+    );
 
-  if (!fs.existsSync(stateFile)) {
-    // Return 200 (not 404) so the browser doesn't log a console error.
-    // The frontend polls this endpoint and a 404 would break the polling loop.
-    // ok:false + reason lets the UI show "agent not started yet" gracefully.
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status });
+  } catch {
+    // Backend unreachable — return graceful not-started response so the
+    // frontend polling loop doesn't break.
     return NextResponse.json(
-      { ok: false, reason: "not_started", error: "No active execution for this task" },
+      { ok: true, data: null, reason: "backend_unavailable" },
       { status: 200 }
     );
-  }
-
-  try {
-    const state = JSON.parse(fs.readFileSync(stateFile, "utf-8"));
-    // Use task_id as execution_id (they're 1:1 in this setup)
-    return NextResponse.json({
-      ok: true,
-      data: {
-        execution_id: taskId,
-        task_id: taskId,
-        status: state.status,
-        started_at: state.started_at || null,
-        workspace_path: taskDir,
-      },
-    });
-  } catch {
-    return NextResponse.json({ ok: false, error: "Failed to read state" }, { status: 500 });
   }
 }
