@@ -15,11 +15,11 @@ interface Props {
 }
 
 export function TaskActions({ action, taskId, itemId, label, showNotes }: Props) {
-  const router                          = useRouter();
-  const [loading, setLoading]           = useState(false);
-  const [error, setError]               = useState("");
-  const [notesOpen, setNotesOpen]       = useState(false);
-  const [notes, setNotes]               = useState("");
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notes, setNotes] = useState("");
 
   const updateTask = useTaskStore((s) => s.updateTask);
   const addToast = useToastStore((s) => s.addToast);
@@ -31,15 +31,15 @@ export function TaskActions({ action, taskId, itemId, label, showNotes }: Props)
     // Optimistic update: immediately update the Zustand store
     const optimisticStatus =
       action === "acceptClaim" ? "claimed" :
-      action === "acceptDeliverable" ? "completed" :
-      "in_progress";
+        action === "acceptDeliverable" ? "completed" :
+          "in_progress";
     const prevTask = useTaskStore.getState().tasks.get(taskId);
     updateTask(taskId, { status: optimisticStatus });
 
     let result: any;
-    if (action === "acceptClaim")        result = await acceptClaim(taskId, itemId);
-    if (action === "acceptDeliverable")  result = await acceptDeliverable(taskId, itemId);
-    if (action === "requestRevision")    result = await requestRevision(taskId, itemId, notes);
+    if (action === "acceptClaim") result = await acceptClaim(taskId, itemId);
+    if (action === "acceptDeliverable") result = await acceptDeliverable(taskId, itemId);
+    if (action === "requestRevision") result = await requestRevision(taskId, itemId, notes);
 
     setLoading(false);
     if (result?.error) {
@@ -49,14 +49,21 @@ export function TaskActions({ action, taskId, itemId, label, showNotes }: Props)
       addToast(result.error, "warning");
     } else {
       await new Promise(resolve => setTimeout(resolve, 500));
+      // After accepting a claim, switch to the activity tab so the user
+      // sees the agent progress instead of staying on the claims view
+      if (action === "acceptClaim") {
+        const url = new URL(window.location.href);
+        url.searchParams.set("tab", "activity");
+        window.history.replaceState(null, "", url.toString());
+      }
       router.refresh();
     }
   }
 
   const style: Record<string, string> = {
-    acceptClaim:       "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm shadow-emerald-200/40",
+    acceptClaim: "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm shadow-emerald-200/40",
     acceptDeliverable: "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm shadow-emerald-200/40",
-    requestRevision:   "border border-stone-200 bg-white text-stone-700 hover:bg-stone-50",
+    requestRevision: "border border-stone-200 bg-white text-stone-700 hover:bg-stone-50",
   };
 
   return (

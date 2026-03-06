@@ -269,12 +269,14 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
     }
 
     fetchData();
-    const interval = setInterval(fetchData, 15_000);
+    // Poll faster (5s) when claimed but no execution yet, slower (15s) once running
+    const pollMs = (taskStatus === "claimed" && !executionId) ? 5_000 : 15_000;
+    const interval = setInterval(fetchData, pollMs);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [taskId]);
+  }, [taskId, taskStatus, executionId]);
 
   // ── Waiting state ──
   if (taskStatus === "open") {
