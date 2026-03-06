@@ -108,8 +108,8 @@ export function EvaluationCard({
   return (
     <div className="rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">
       {/* ── Header ─────────────────────────────── */}
-      <div className="flex items-center gap-3 bg-gradient-to-r from-violet-50 to-indigo-50 border-b border-violet-100 px-5 py-3.5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-200 text-sm font-bold text-violet-800">
+      <div className="flex items-center gap-3 bg-gradient-to-r from-blue-50 to-sky-50 border-b border-blue-100 px-5 py-3.5">
+        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-200 text-sm font-bold text-blue-800">
           {(remark.agent_name || "A").charAt(0).toUpperCase()}
         </div>
         <div className="flex-1 min-w-0">
@@ -117,7 +117,7 @@ export function EvaluationCard({
             <span className="text-sm font-semibold text-stone-900">
               {remark.agent_name || "Agent"}
             </span>
-            <span className="rounded-full bg-violet-200/70 px-2 py-0.5 text-[10px] font-bold text-violet-800">
+            <span className="rounded-full bg-blue-200/70 px-2 py-0.5 text-[10px] font-bold text-blue-800">
               Evaluation
             </span>
           </div>
@@ -202,56 +202,37 @@ export function EvaluationCard({
                   </p>
                   <div className="pl-6">
                     {q.type === "text_input" && (
-                      <textarea
-                        rows={2}
-                        className="w-full resize-none rounded-xl border-stone-200 bg-white px-3 py-2 text-sm shadow-sm transition-colors focus:border-violet-500 focus:ring-1 focus:ring-violet-500 disabled:opacity-60 disabled:bg-stone-50"
-                        placeholder={q.placeholder || "Your answer..."}
-                        value={selections[q.id] || ""}
-                        onChange={(e) => setAnswer(q.id, e.target.value)}
+                      <TextInput
+                        placeholder={q.placeholder}
+                        value={selections[q.id]}
+                        onChange={(v) => setAnswer(q.id, v)}
                         disabled={isPending}
                       />
                     )}
-                    {(q.type === "multiple_choice" || q.type === "yes_no") && (
-                      <div className="flex flex-wrap gap-2">
-                        {q.options?.map((opt) => {
-                          const isSelected = selections[q.id] === opt;
-                          return (
-                            <button
-                              key={opt}
-                              onClick={() => setAnswer(q.id, opt)}
-                              disabled={isPending}
-                              className={`rounded-full border px-4 py-1.5 text-xs font-semibold transition-all ${isSelected
-                                ? "border-violet-600 bg-violet-600 text-white shadow-sm"
-                                : "border-stone-200 bg-stone-50 text-stone-600 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700"
-                                } disabled:opacity-50`}
-                            >
-                              {opt}
-                            </button>
-                          );
-                        })}
-                      </div>
+                    {q.type === "yes_no" && (
+                      <YesNoInput
+                        value={selections[q.id]}
+                        onChange={(v) => setAnswer(q.id, v)}
+                        disabled={isPending}
+                      />
+                    )}
+                    {q.type === "multiple_choice" && (
+                      <McqInput
+                        options={q.options || []}
+                        value={selections[q.id]}
+                        onChange={(v) => setAnswer(q.id, v)}
+                        disabled={isPending}
+                      />
                     )}
                     {q.type === "scale" && (
-                      <div className="flex flex-col gap-2 max-w-sm">
-                        <input
-                          type="range"
-                          min={q.scale_min ?? 1}
-                          max={q.scale_max ?? 5}
-                          value={selections[q.id] || (q.scale_min ?? 1)}
-                          onChange={(e) => setAnswer(q.id, e.target.value)}
-                          disabled={isPending}
-                          className="w-full h-1.5 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-violet-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                        />
-                        {q.scale_labels && (
-                          <div className="flex justify-between text-[10px] font-bold tracking-wider uppercase text-stone-400">
-                            <span>{q.scale_labels[0]}</span>
-                            <span>{q.scale_labels[1]}</span>
-                          </div>
-                        )}
-                        <span className="text-center font-bold text-violet-700">
-                          {selections[q.id] || (q.scale_min ?? 1)}
-                        </span>
-                      </div>
+                      <ScaleInput
+                        min={q.scale_min ?? 1}
+                        max={q.scale_max ?? 5}
+                        labels={q.scale_labels}
+                        value={selections[q.id]}
+                        onChange={(v) => setAnswer(q.id, v)}
+                        disabled={isPending}
+                      />
                     )}
                   </div>
                 </div>
@@ -279,7 +260,7 @@ export function EvaluationCard({
                 <button
                   onClick={handleSubmit}
                   disabled={isPending || unansweredCount > 0}
-                  className="rounded-full bg-violet-600 px-5 py-2 text-xs font-bold text-white shadow-sm transition-all hover:bg-violet-700 hover:shadow-md disabled:opacity-40"
+                  className="rounded-full bg-blue-600 px-5 py-2 text-xs font-bold text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md disabled:opacity-40"
                 >
                   {isPending ? "Submitting..." : "Submit Answers"}
                 </button>
@@ -304,7 +285,7 @@ export function EvaluationCard({
                       {q.text}
                     </p>
                     <div className="pl-6 border-l-2 border-stone-200 mt-2">
-                      <p className="text-sm text-violet-700 font-semibold">{q.answer || selections[q.id]}</p>
+                      <p className="text-sm text-blue-700 font-semibold">{q.answer || selections[q.id]}</p>
                     </div>
                   </div>
                 )
@@ -417,7 +398,7 @@ function McqInput({
             disabled={disabled}
             onClick={() => toggleOption(option)}
             className={`w-full rounded-xl border px-4 py-2.5 text-left text-sm transition-all ${isSelected
-              ? "border-[#E5484D]/40 bg-[#FFF1F2] text-[#E5484D] ring-1 ring-[#E5484D]/20"
+              ? "border-blue-400 bg-blue-50 text-blue-700 ring-1 ring-blue-200"
               : "border-stone-200 bg-white text-stone-700 hover:border-stone-300 hover:bg-stone-50"
               } disabled:opacity-50`}
           >
@@ -425,7 +406,7 @@ function McqInput({
               {/* Square checkbox to signal multi-select */}
               <span
                 className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 text-[10px] ${isSelected
-                  ? "border-[#E5484D] bg-[#E5484D] text-white"
+                  ? "border-blue-600 bg-blue-600 text-white"
                   : "border-stone-300"
                   }`}
               >
@@ -463,7 +444,7 @@ function TextInput({
       disabled={disabled}
       rows={2}
       placeholder={placeholder || "Type your answer..."}
-      className="w-full rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800 placeholder:text-stone-400 transition-colors focus:border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-100 disabled:opacity-50 resize-none"
+      className="w-full rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800 placeholder:text-stone-400 transition-colors focus:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:opacity-50 resize-none"
     />
   );
 }
@@ -495,7 +476,7 @@ function ScaleInput({
             disabled={disabled}
             onClick={() => onChange(String(step))}
             className={`flex-1 rounded-lg border py-2 text-sm font-semibold transition-all ${selected === step
-              ? "border-violet-400 bg-violet-100 text-violet-800 ring-1 ring-violet-200"
+              ? "border-blue-400 bg-blue-100 text-blue-800 ring-1 ring-blue-200"
               : "border-stone-200 bg-white text-stone-500 hover:border-stone-300 hover:bg-stone-50"
               } disabled:opacity-50`}
           >
