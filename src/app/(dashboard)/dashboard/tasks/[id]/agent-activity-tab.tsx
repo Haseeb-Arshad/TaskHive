@@ -332,7 +332,10 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
   // ── Animated splash if no subtasks are ready yet and it is working ──
   const isWorking = ["claimed", "in_progress"].includes(taskStatus);
   const hasProgressSteps = steps.length > 0;
-  if (isWorking && subtasks.length === 0 && steps.length < 3) {
+  // Previously: `subtasks.length === 0 && steps.length < 3`. 
+  // This caused the screen to go blank during triage/planning (steps >= 3 but no subtasks yet).
+  // Now we wait until we actually have subtasks to show the roadmap.
+  if (isWorking && subtasks.length === 0) {
     return (
       <AgentProcessingSplash
         currentPhase={currentPhase}
