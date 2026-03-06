@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { useExecutionProgress } from "@/hooks/use-execution-progress";
 import type { ProgressStep } from "@/hooks/use-execution-progress";
 
@@ -39,62 +39,6 @@ interface SubtaskData {
    PHASE CONFIG
    ═══════════════════════════════════════════════════════════ */
 
-const PHASES = [
-  {
-    key: "triage",
-    label: "Triage",
-    fullLabel: "Task Analysis",
-    desc: "Reading & analyzing task requirements",
-    icon: "search",
-    color: "#6366f1",
-    bg: "#eef2ff",
-  },
-  {
-    key: "clarification",
-    label: "Clarify",
-    fullLabel: "Clarification",
-    desc: "Checking if questions are needed",
-    icon: "chat",
-    color: "#8b5cf6",
-    bg: "#f5f3ff",
-  },
-  {
-    key: "planning",
-    label: "Plan",
-    fullLabel: "Execution Plan",
-    desc: "Creating step-by-step strategy",
-    icon: "plan",
-    color: "#0ea5e9",
-    bg: "#f0f9ff",
-  },
-  {
-    key: "execution",
-    label: "Execute",
-    fullLabel: "Code Execution",
-    desc: "Writing code & building files",
-    icon: "code",
-    color: "#f59e0b",
-    bg: "#fffbeb",
-  },
-  {
-    key: "review",
-    label: "Review",
-    fullLabel: "Quality Check",
-    desc: "Verifying quality & correctness",
-    icon: "check",
-    color: "#10b981",
-    bg: "#ecfdf5",
-  },
-  {
-    key: "delivery",
-    label: "Deliver",
-    fullLabel: "Delivery",
-    desc: "Submitting final deliverables",
-    icon: "package",
-    color: "#E5484D",
-    bg: "#fff1f2",
-  },
-];
 
 /* ═══════════════════════════════════════════════════════════
    PHASE HEADINGS (for splash)
@@ -511,7 +455,6 @@ function QuestProgress({
 }) {
   const totalSteps = subtasks.length;
   const completedSteps = subtasks.filter(s => s.status === "completed").length;
-  const currentStepIdx = subtasks.findIndex(s => s.status === "in_progress");
 
   return (
     <div className="rounded-xl border border-stone-200 bg-white p-4">
@@ -541,7 +484,7 @@ function QuestProgress({
 
       {/* Segmented progress */}
       <div className="flex gap-1">
-        {subtasks.map((sub, i) => {
+        {subtasks.map((sub) => {
           const isDone = isComplete || sub.status === "completed";
           const isCurrent = sub.status === "in_progress" && !isComplete;
 
@@ -627,18 +570,6 @@ function JourneyMap({
     return d;
   }, [checkpoints]);
 
-  // Approximate total path length for strokeDashoffset-based progress
-  // We use a dummy approach: total segment lengths summed
-  const pathLengthApprox = useMemo(() => {
-    if (checkpoints.length < 2) return 1;
-    let total = 0;
-    for (let i = 1; i < checkpoints.length; i++) {
-      const dx = checkpoints[i].x - checkpoints[i - 1].x;
-      const dy = checkpoints[i].y - checkpoints[i - 1].y;
-      total += Math.sqrt(dx * dx + dy * dy);
-    }
-    return total || 1;
-  }, [checkpoints]);
 
   // For the dashed completed trail we use a clip rect approach that actually works:
   // We draw the same dashed path but clip it to a rectangle covering the top N% of the SVG height
@@ -696,7 +627,7 @@ function JourneyMap({
           </clipPath>
 
           {/* Per-node text clip paths — one rect per subtask */}
-          {subtasks.map((sub, i) => (
+          {subtasks.map((sub) => (
             <clipPath key={`cp-${sub.id}`} id={`jm-text-clip-${sub.id}`}>
               {/* text area: from icon right edge (-44) to right side (72), centred at node translate */}
               <rect x="-44" y="-12" width="114" height="24" />
@@ -1294,14 +1225,6 @@ function PhaseIconSVG({ phase, color }: { phase: string; color: string }) {
   }
 }
 
-function PhaseIconInline({ phase, white }: { phase: string; white: boolean }) {
-  const color = white ? "white" : "#78716c";
-  return (
-    <div className="flex h-4 w-4 items-center justify-center">
-      <PhaseIconSVG phase={phase} color={color} />
-    </div>
-  );
-}
 
 /* ═══════════════════════════════════════════════════════════
    RAW LOGS VIEWER

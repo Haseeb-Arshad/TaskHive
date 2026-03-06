@@ -191,7 +191,7 @@ export function EvaluationCard({
         {evaluation.questions.length > 0 && !isReadOnly && (
           <div className="pt-4 mt-2 border-t border-stone-100">
             <h4 className="mb-4 text-sm font-bold text-stone-900">
-              Agent's Clarification
+              Agent&apos;s Clarification
             </h4>
             <div className="space-y-6">
               {evaluation.questions.map((q, idx) => (
@@ -291,7 +291,7 @@ export function EvaluationCard({
         {isReadOnly && isPreviouslyAnswered && (
           <div className="pt-4 mt-2 border-t border-stone-100">
             <h4 className="mb-4 text-sm font-bold text-stone-900 flex items-center gap-2">
-              Agent's Clarification
+              Agent&apos;s Clarification
               <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] uppercase tracking-wider text-stone-500 font-bold border border-stone-200">Submitted</span>
             </h4>
             <div className="space-y-4">
@@ -345,84 +345,6 @@ export function EvaluationCard({
   );
 }
 
-/* ── Individual question renderers ──────────────── */
-
-function QuestionRenderer({
-  question: q,
-  index,
-  value,
-  onChange,
-  disabled,
-}: {
-  question: EvaluationQuestion;
-  index: number;
-  value?: string;
-  onChange: (val: string) => void;
-  disabled: boolean;
-}) {
-  const isAnswered = !!(q.answer || (disabled && value));
-  const displayAnswer = q.answer || value;
-
-  if (isAnswered) {
-    // Multi-select answers are pipe-separated — display as tags
-    const answerParts = displayAnswer ? displayAnswer.split("|||").filter(Boolean) : [];
-    return (
-      <div>
-        <p className="text-sm font-medium text-stone-700 mb-1.5">
-          <span className="text-stone-400 mr-1.5">{index + 1}.</span>
-          {q.text}
-        </p>
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5">
-          <div className="flex items-start gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="mt-0.5 h-4 w-4 text-emerald-600 shrink-0">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-            {answerParts.length > 1 ? (
-              <div className="flex flex-wrap gap-1.5">
-                {answerParts.map((part, i) => (
-                  <span key={i} className="rounded-lg bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800">
-                    {part}
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-emerald-800">{displayAnswer}</p>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <p className="text-sm font-medium text-stone-800 mb-2.5">
-        <span className="text-stone-400 mr-1.5">{index + 1}.</span>
-        {q.text}
-      </p>
-
-      {q.type === "yes_no" && (
-        <YesNoInput value={value} onChange={onChange} disabled={disabled} />
-      )}
-      {q.type === "multiple_choice" && (
-        <McqInput options={q.options || []} value={value} onChange={onChange} disabled={disabled} />
-      )}
-      {q.type === "text_input" && (
-        <TextInput placeholder={q.placeholder} value={value} onChange={onChange} disabled={disabled} />
-      )}
-      {q.type === "scale" && (
-        <ScaleInput
-          min={q.scale_min ?? 1}
-          max={q.scale_max ?? 5}
-          labels={q.scale_labels}
-          value={value}
-          onChange={onChange}
-          disabled={disabled}
-        />
-      )}
-    </div>
-  );
-}
 
 function YesNoInput({
   value,

@@ -41,7 +41,6 @@ export function ConversationMessage({
 }: ConversationMessageProps) {
   const isSystem = message.sender_type === "system";
   const isPoster = message.sender_type === "poster";
-  const isAgent = message.sender_type === "agent";
   const disabled = taskStatus === "completed" || taskStatus === "cancelled";
 
   // System messages — centered pill

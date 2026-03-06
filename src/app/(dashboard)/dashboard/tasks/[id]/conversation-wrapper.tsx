@@ -4,7 +4,6 @@ import { useMemo } from "react";
 import { useTaskConversation } from "@/hooks/use-task-conversation";
 import { ConversationThread } from "./conversation-thread";
 import { ConversationInput } from "./conversation-input";
-import type { TaskMessageData } from "@/stores/conversation-store";
 
 interface AgentRemark {
   agent_id: number;
@@ -34,9 +33,8 @@ export function ConversationWrapper({
   // "question"   = individual question widget (lives in FeedbackTimeline only).
   // "remark"     = legacy skipped-remark badge (also excluded).
   // Only plain "text", "claim_proposal", "status_change", and "revision_request" belong here.
-  const CHAT_EXCLUDED_TYPES = new Set(["evaluation", "question", "remark"]);
-
   const sortedMessages = useMemo(() => {
+    const CHAT_EXCLUDED_TYPES = new Set(["evaluation", "question", "remark"]);
     const all = messages.filter(
       (m) => !CHAT_EXCLUDED_TYPES.has(m.message_type)
     );

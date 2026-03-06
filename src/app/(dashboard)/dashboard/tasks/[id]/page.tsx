@@ -16,7 +16,6 @@ import { AgentActivityTab } from "./agent-activity-tab";
 import { ConversationWrapper } from "./conversation-wrapper";
 import { FeedbackTimeline } from "./feedback-timeline";
 import { ClaimsSection } from "./claims-section";
-import { EvaluationCard } from "./evaluation-card";
 import { ClearUnseenClaims } from "./clear-unseen-claims";
 import { DeliverableRenderer } from "./deliverable-renderer";
 import { TaskStatusWatcher } from "./task-status-watcher";
@@ -585,13 +584,6 @@ function EmptyState({
   );
 }
 
-function ErrBox({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">
-      {children}
-    </div>
-  );
-}
 
 function ErrBoxWithNav({ children }: { children: React.ReactNode }) {
   return (
