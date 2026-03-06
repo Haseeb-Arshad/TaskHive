@@ -55,6 +55,12 @@ export function EvaluationCard({
   ).length;
   const hasNewAnswers = Object.keys(selections).length > 0;
 
+  // Hide the entire form if it's already answered, or if it wasn't answered
+  // and we don't need to force them to answer anymore.
+  // submitted means we successfully sent answers to backend just now.
+  const isPreviouslyAnswered = evaluation.questions.some(q => q.answer);
+  const isReadOnly = submitted || isPreviouslyAnswered;
+
   const scoreColor =
     evaluation.score <= 3
       ? "bg-red-500"
@@ -181,36 +187,128 @@ export function EvaluationCard({
           </div>
         )}
 
-        {/* ── Questions ────────────────────────── */}
-        {evaluation.questions.length > 0 && (
-          <div>
-            <div className="flex items-center gap-2 mb-4">
-              <p className="text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">
-                Quick questions
-              </p>
-              {!submitted && unansweredCount > 0 && (
-                <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700">
-                  {unansweredCount} remaining
-                </span>
-              )}
-              {submitted && (
-                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-                  All answered
-                </span>
-              )}
+        {/* ── Follow-up Questions ───────────────── */}
+        {evaluation.questions.length > 0 && !isReadOnly && (
+          <div className="pt-4 mt-2 border-t border-stone-100">
+            <h4 className="mb-4 text-sm font-bold text-stone-900">
+              Agent's Clarification
+            </h4>
+            <div className="space-y-6">
+              {evaluation.questions.map((q, idx) => (
+                <div key={q.id || idx} className="space-y-3">
+                  <p className="text-sm font-medium leading-normal text-stone-800">
+                    <span className="mr-2 text-stone-400 font-bold">{idx + 1}.</span>
+                    {q.text}
+                  </p>
+                  <div className="pl-6">
+                    {q.type === "text_input" && (
+                      <textarea
+                        rows={2}
+                        className="w-full resize-none rounded-xl border-stone-200 bg-white px-3 py-2 text-sm shadow-sm transition-colors focus:border-violet-500 focus:ring-1 focus:ring-violet-500 disabled:opacity-60 disabled:bg-stone-50"
+                        placeholder={q.placeholder || "Your answer..."}
+                        value={selections[q.id] || ""}
+                        onChange={(e) => setAnswer(q.id, e.target.value)}
+                        disabled={isPending}
+                      />
+                    )}
+                    {(q.type === "multiple_choice" || q.type === "yes_no") && (
+                      <div className="flex flex-wrap gap-2">
+                        {q.options?.map((opt) => {
+                          const isSelected = selections[q.id] === opt;
+                          return (
+                            <button
+                              key={opt}
+                              onClick={() => setAnswer(q.id, opt)}
+                              disabled={isPending}
+                              className={`rounded-full border px-4 py-1.5 text-xs font-semibold transition-all ${isSelected
+                                ? "border-violet-600 bg-violet-600 text-white shadow-sm"
+                                : "border-stone-200 bg-stone-50 text-stone-600 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700"
+                                } disabled:opacity-50`}
+                            >
+                              {opt}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {q.type === "scale" && (
+                      <div className="flex flex-col gap-2 max-w-sm">
+                        <input
+                          type="range"
+                          min={q.scale_min ?? 1}
+                          max={q.scale_max ?? 5}
+                          value={selections[q.id] || (q.scale_min ?? 1)}
+                          onChange={(e) => setAnswer(q.id, e.target.value)}
+                          disabled={isPending}
+                          className="w-full h-1.5 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-violet-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                        />
+                        {q.scale_labels && (
+                          <div className="flex justify-between text-[10px] font-bold tracking-wider uppercase text-stone-400">
+                            <span>{q.scale_labels[0]}</span>
+                            <span>{q.scale_labels[1]}</span>
+                          </div>
+                        )}
+                        <span className="text-center font-bold text-violet-700">
+                          {selections[q.id] || (q.scale_min ?? 1)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
 
-            <div className="space-y-5">
-              {evaluation.questions.map((q, qIdx) => (
-                <QuestionRenderer
-                  key={q.id}
-                  question={q}
-                  index={qIdx}
-                  value={selections[q.id]}
-                  onChange={(val) => setAnswer(q.id, val)}
-                  disabled={submitted || isPending}
-                />
-              ))}
+            {/* Error Message */}
+            {submitError && (
+              <div className="mt-4 rounded-lg bg-red-50 p-3 flex gap-2 text-sm text-red-700">
+                {/* Assuming AlertCircle is imported or defined */}
+                {/* <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-red-500" /> */}
+                <p>{submitError}</p>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="mt-6 flex items-center justify-end gap-3 pt-2">
+              <span className="text-xs font-medium text-stone-500">
+                {unansweredCount > 0
+                  ? `${unansweredCount} question${unansweredCount !== 1 ? "s" : ""} left`
+                  : "All answered!"}
+              </span>
+
+              {selections && (
+                <button
+                  onClick={handleSubmit}
+                  disabled={isPending || unansweredCount > 0}
+                  className="rounded-full bg-violet-600 px-5 py-2 text-xs font-bold text-white shadow-sm transition-all hover:bg-violet-700 hover:shadow-md disabled:opacity-40"
+                >
+                  {isPending ? "Submitting..." : "Submit Answers"}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {isReadOnly && isPreviouslyAnswered && (
+          <div className="pt-4 mt-2 border-t border-stone-100">
+            <h4 className="mb-4 text-sm font-bold text-stone-900 flex items-center gap-2">
+              Agent's Clarification
+              <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] uppercase tracking-wider text-stone-500 font-bold border border-stone-200">Submitted</span>
+            </h4>
+            <div className="space-y-4">
+              {evaluation.questions.map((q, idx) => {
+                if (!q.answer) return null;
+                return (
+                  <div key={q.id || idx} className="rounded-xl border border-stone-100 bg-stone-50 p-4">
+                    <p className="text-sm font-medium leading-normal text-stone-800 mb-2">
+                      <span className="mr-2 text-stone-400 font-bold">{idx + 1}.</span>
+                      {q.text}
+                    </p>
+                    <div className="pl-6 border-l-2 border-stone-200 mt-2">
+                      <p className="text-sm text-violet-700 font-semibold">{q.answer || selections[q.id]}</p>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}
@@ -343,10 +441,10 @@ function YesNoInput({
           disabled={disabled}
           onClick={() => onChange(opt)}
           className={`flex-1 rounded-xl border py-2.5 text-sm font-medium transition-all ${value === opt
-              ? opt === "Yes"
-                ? "border-emerald-300 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-                : "border-red-300 bg-red-50 text-red-700 ring-1 ring-red-200"
-              : "border-stone-200 bg-white text-stone-600 hover:border-stone-300 hover:bg-stone-50"
+            ? opt === "Yes"
+              ? "border-emerald-300 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+              : "border-red-300 bg-red-50 text-red-700 ring-1 ring-red-200"
+            : "border-stone-200 bg-white text-stone-600 hover:border-stone-300 hover:bg-stone-50"
             } disabled:opacity-50`}
         >
           {opt === "Yes" ? (
@@ -397,16 +495,16 @@ function McqInput({
             disabled={disabled}
             onClick={() => toggleOption(option)}
             className={`w-full rounded-xl border px-4 py-2.5 text-left text-sm transition-all ${isSelected
-                ? "border-[#E5484D]/40 bg-[#FFF1F2] text-[#E5484D] ring-1 ring-[#E5484D]/20"
-                : "border-stone-200 bg-white text-stone-700 hover:border-stone-300 hover:bg-stone-50"
+              ? "border-[#E5484D]/40 bg-[#FFF1F2] text-[#E5484D] ring-1 ring-[#E5484D]/20"
+              : "border-stone-200 bg-white text-stone-700 hover:border-stone-300 hover:bg-stone-50"
               } disabled:opacity-50`}
           >
             <span className="flex items-center gap-2.5">
               {/* Square checkbox to signal multi-select */}
               <span
                 className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 text-[10px] ${isSelected
-                    ? "border-[#E5484D] bg-[#E5484D] text-white"
-                    : "border-stone-300"
+                  ? "border-[#E5484D] bg-[#E5484D] text-white"
+                  : "border-stone-300"
                   }`}
               >
                 {isSelected && "\u2713"}
@@ -475,8 +573,8 @@ function ScaleInput({
             disabled={disabled}
             onClick={() => onChange(String(step))}
             className={`flex-1 rounded-lg border py-2 text-sm font-semibold transition-all ${selected === step
-                ? "border-violet-400 bg-violet-100 text-violet-800 ring-1 ring-violet-200"
-                : "border-stone-200 bg-white text-stone-500 hover:border-stone-300 hover:bg-stone-50"
+              ? "border-violet-400 bg-violet-100 text-violet-800 ring-1 ring-violet-200"
+              : "border-stone-200 bg-white text-stone-500 hover:border-stone-300 hover:bg-stone-50"
               } disabled:opacity-50`}
           >
             {step}
@@ -547,10 +645,10 @@ function RelatedClaimPanel({ claim, taskId }: { claim: any; taskId: number }) {
           This Agent&apos;s Claim
         </p>
         <span className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-medium ${accepted
-            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-            : claim.status === "rejected"
-              ? "border-red-200 bg-red-50 text-red-600"
-              : "border-amber-200 bg-amber-50 text-amber-700"
+          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+          : claim.status === "rejected"
+            ? "border-red-200 bg-red-50 text-red-600"
+            : "border-amber-200 bg-amber-50 text-amber-700"
           }`}>
           {accepted ? "accepted" : claim.status}
         </span>
