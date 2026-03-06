@@ -20,6 +20,7 @@ import { EvaluationCard } from "./evaluation-card";
 import { ClearUnseenClaims } from "./clear-unseen-claims";
 import { DeliverableRenderer } from "./deliverable-renderer";
 import { TaskStatusWatcher } from "./task-status-watcher";
+import { CancelTaskButton } from "./cancel-button";
 
 /* ── Status maps ──────────────────────────────────────── */
 const STATUS_BADGE: Record<string, string> = {
@@ -119,13 +120,18 @@ export default async function TaskDetailPage({
           <h1 className="font-[family-name:var(--font-display)] text-xl leading-snug text-stone-900">
             {task.title}
           </h1>
-          <span
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${STATUS_BADGE[task.status] || "bg-stone-100 text-stone-600 border-stone-200"
-              }`}
-          >
-            <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
-            {STATUS_LABEL[task.status] || task.status}
-          </span>
+          <div className="flex items-center gap-3">
+            <span
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${STATUS_BADGE[task.status] || "bg-stone-100 text-stone-600 border-stone-200"
+                }`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
+              {STATUS_LABEL[task.status] || task.status}
+            </span>
+            {!['completed', 'cancelled'].includes(task.status) && (
+              <CancelTaskButton taskId={task.id} />
+            )}
+          </div>
         </div>
 
         {/* Meta chips */}
@@ -480,10 +486,10 @@ function PostClaimLayout({
                       <div key={act.id} className="flex items-start gap-3 px-4 py-3">
                         <div
                           className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${act.review_result === "pass"
-                              ? "bg-emerald-500"
-                              : act.review_result === "fail"
-                                ? "bg-red-500"
-                                : "bg-amber-400"
+                            ? "bg-emerald-500"
+                            : act.review_result === "fail"
+                              ? "bg-red-500"
+                              : "bg-amber-400"
                             }`}
                         />
                         <div className="flex-1 min-w-0">
@@ -497,10 +503,10 @@ function PostClaimLayout({
                           </div>
                           <span
                             className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${act.review_result === "pass"
-                                ? "bg-emerald-100 text-emerald-700"
-                                : act.review_result === "fail"
-                                  ? "bg-red-100 text-red-700"
-                                  : "bg-amber-100 text-amber-700"
+                              ? "bg-emerald-100 text-emerald-700"
+                              : act.review_result === "fail"
+                                ? "bg-red-100 text-red-700"
+                                : "bg-amber-100 text-amber-700"
                               }`}
                           >
                             {act.review_result}
@@ -547,10 +553,10 @@ function Chip({
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium ${accent
-          ? "border-[#E5484D]/20 bg-[#FFF1F2] text-[#E5484D]"
-          : subtle
-            ? "border-stone-100 bg-stone-50 text-stone-400"
-            : "border-stone-200 bg-stone-50 text-stone-600"
+        ? "border-[#E5484D]/20 bg-[#FFF1F2] text-[#E5484D]"
+        : subtle
+          ? "border-stone-100 bg-stone-50 text-stone-400"
+          : "border-stone-200 bg-stone-50 text-stone-600"
         }`}
     >
       {children}
@@ -640,10 +646,10 @@ function ProgressStepper({ status }: { status: string }) {
             <div className="flex flex-col items-center">
               <div
                 className={`flex h-7 w-7 items-center justify-center rounded-full border-2 text-xs font-bold transition-all ${done
-                    ? "border-[#E5484D] bg-[#E5484D] text-white"
-                    : cur
-                      ? "border-[#E5484D] bg-white text-[#E5484D] ring-4 ring-red-50"
-                      : "border-stone-200 bg-white text-stone-300"
+                  ? "border-[#E5484D] bg-[#E5484D] text-white"
+                  : cur
+                    ? "border-[#E5484D] bg-white text-[#E5484D] ring-4 ring-red-50"
+                    : "border-stone-200 bg-white text-stone-300"
                   }`}
               >
                 {done ? (
@@ -656,10 +662,10 @@ function ProgressStepper({ status }: { status: string }) {
               </div>
               <span
                 className={`mt-1.5 text-[10px] font-semibold uppercase tracking-wide ${cur
-                    ? "text-[#E5484D]"
-                    : done
-                      ? "text-stone-500"
-                      : "text-stone-300"
+                  ? "text-[#E5484D]"
+                  : done
+                    ? "text-stone-500"
+                    : "text-stone-300"
                   }`}
               >
                 {step.label}

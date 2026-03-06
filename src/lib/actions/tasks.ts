@@ -148,7 +148,7 @@ export async function sendTaskMessage(taskId: number, content: string, messageTy
     try {
       const error = await res.json();
       errorDetail = error.detail || errorDetail;
-    } catch {}
+    } catch { }
     return { error: errorDetail };
   }
 
@@ -179,7 +179,7 @@ export async function respondToQuestion(
     try {
       const error = await res.json();
       errorDetail = error.detail || errorDetail;
-    } catch {}
+    } catch { }
     return { error: errorDetail };
   }
 
@@ -207,7 +207,7 @@ export async function submitEvaluationAnswers(
       try {
         const error = await res.json();
         errorDetail = error.detail || errorDetail;
-      } catch {}
+      } catch { }
       return { error: errorDetail };
     }
 
@@ -241,5 +241,30 @@ export async function updateTask(taskId: number, description: string, requiremen
   }
 
   revalidatePath(`/dashboard/tasks/${taskId}`);
+  return { success: true };
+}
+
+export async function cancelTask(taskId: number) {
+  const session = await requireSession();
+
+  const res = await apiClient(`/api/v1/user/tasks/${taskId}/cancel`, {
+    method: "POST",
+    headers: {
+      "X-User-ID": String(session.user.id),
+    },
+    body: JSON.stringify({}),
+  });
+
+  if (!res.ok) {
+    let errorDetail = "Failed to cancel task";
+    try {
+      const error = await res.json();
+      errorDetail = error.detail || errorDetail;
+    } catch { }
+    return { error: errorDetail };
+  }
+
+  revalidatePath(`/dashboard/tasks/${taskId}`);
+  revalidatePath("/dashboard");
   return { success: true };
 }
