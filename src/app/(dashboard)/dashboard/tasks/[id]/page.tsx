@@ -370,7 +370,7 @@ function PostClaimLayout({
         {{
           /* ── Activity tab ── */
           activity: (
-            <AgentActivityTab taskId={task.id} taskStatus={task.status} userId={userId} />
+            <AgentActivityTab taskId={task.id} taskStatus={task.status} />
           ),
 
           /* ── Conversation tab ── */

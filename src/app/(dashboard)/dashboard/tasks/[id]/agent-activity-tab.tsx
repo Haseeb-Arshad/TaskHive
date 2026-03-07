@@ -1,11 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useExecutionProgress } from "@/hooks/use-execution-progress";
 import type { ProgressStep } from "@/hooks/use-execution-progress";
-import { useTaskConversation } from "@/hooks/use-task-conversation";
-import type { TaskMessageData } from "@/stores/conversation-store";
-import { StructuredQuestion } from "./structured-question";
 
 /* ═══════════════════════════════════════════════════════════
    TYPES
@@ -14,7 +11,6 @@ import { StructuredQuestion } from "./structured-question";
 interface AgentActivityTabProps {
   taskId: number;
   taskStatus: string;
-  userId: number;
 }
 
 interface ExecutionData {
@@ -207,7 +203,7 @@ function AgentProcessingSplash({
    MAIN COMPONENT
    ═══════════════════════════════════════════════════════════ */
 
-export function AgentActivityTab({ taskId, taskStatus, userId }: AgentActivityTabProps) {
+export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) {
   const [executionId, setExecutionId] = useState<number | null>(null);
   const [execution, setExecution] = useState<ExecutionData | null>(null);
   const [subtasks, setSubtasks] = useState<SubtaskData[]>([]);
@@ -216,17 +212,6 @@ export function AgentActivityTab({ taskId, taskStatus, userId }: AgentActivityTa
 
   const { steps, currentPhase, progressPct, connected } =
     useExecutionProgress(executionId);
-  const { messages, respondToQuestion } = useTaskConversation({ taskId, userId });
-
-  const pendingClarificationQuestions = useMemo(() => {
-    return (messages || []).filter((m: TaskMessageData) => {
-      if (m.message_type !== "question") return false;
-      const structured = (m.structured_data || {}) as Record<string, unknown>;
-      const responded = Boolean(structured.responded_at) || Boolean(structured.response);
-      return !responded;
-    });
-  }, [messages]);
-
   useEffect(() => {
     if (subtasks.length > 0 || steps.length === 0) return;
     const derived = deriveSubtasksFromSteps(steps);
@@ -344,40 +329,12 @@ export function AgentActivityTab({ taskId, taskStatus, userId }: AgentActivityTa
   // Now we wait until we actually have subtasks to show the roadmap.
   if (isWorking && subtasks.length === 0) {
     return (
-      <div className="space-y-4">
-        {pendingClarificationQuestions.length > 0 && (
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-            <p className="text-sm font-semibold text-amber-800">
-              Clarification needed before execution
-            </p>
-            <p className="mt-1 text-xs text-amber-700">
-              Please answer these question(s) so the agent can continue.
-            </p>
-            <div className="mt-3 space-y-3">
-              {pendingClarificationQuestions.map((msg) => (
-                <div key={msg.id} className="rounded-xl border border-amber-200 bg-white p-3">
-                  <p className="text-sm text-stone-700">{msg.content}</p>
-                  {msg.structured_data && (
-                    <StructuredQuestion
-                      structuredData={msg.structured_data}
-                      onRespond={(response, optionIndex) =>
-                        respondToQuestion(msg.id, response, optionIndex)
-                      }
-                      disabled={taskStatus === "completed" || taskStatus === "cancelled"}
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        <AgentProcessingSplash
-          currentPhase={currentPhase}
-          latestDetail={hasProgressSteps ? (steps[steps.length - 1].detail || steps[steps.length - 1].description) : null}
-          progressPct={progressPct}
-          fading={false}
-        />
-      </div>
+      <AgentProcessingSplash
+        currentPhase={currentPhase}
+        latestDetail={hasProgressSteps ? (steps[steps.length - 1].detail || steps[steps.length - 1].description) : null}
+        progressPct={progressPct}
+        fading={false}
+      />
     );
   }
 
