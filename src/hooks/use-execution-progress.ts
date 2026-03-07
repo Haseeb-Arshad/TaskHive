@@ -2,9 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
 export interface ProgressStep {
   index: number;
   subtask_id?: number | null;
@@ -50,7 +47,7 @@ export function useExecutionProgress(
       }
 
       const es = new EventSource(
-        `${API_BASE_URL}/orchestrator/progress/executions/${executionId}/stream`
+        `/api/orchestrator/progress/executions/${executionId}/stream`
       );
       esRef.current = es;
 
