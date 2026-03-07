@@ -208,6 +208,7 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
   const [execution, setExecution] = useState<ExecutionData | null>(null);
   const [subtasks, setSubtasks] = useState<SubtaskData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [backendUnavailable, setBackendUnavailable] = useState(false);
   const [selectedPhase, setSelectedPhase] = useState<string | null>(null);
 
   const { steps, currentPhase, progressPct, connected } =
@@ -231,6 +232,9 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
         );
         if (res.ok) {
           const json = await res.json();
+          if (!cancelled) {
+            setBackendUnavailable(json?.reason === "backend_unavailable");
+          }
           if (!cancelled && json.ok && json.data) {
             const eid = json.data.execution_id;
             setExecutionId(eid);
@@ -254,7 +258,7 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
           }
         }
       } catch {
-        // API not available
+        if (!cancelled) setBackendUnavailable(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -292,6 +296,25 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
   }
 
   // ── Claimed but no execution yet (transitional state) ──
+  if (taskStatus === "claimed" && !executionId && !loading && backendUnavailable) {
+    return (
+      <div className="flex flex-col items-center justify-center px-6 py-20 text-center">
+        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-red-200 bg-red-50">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-7 w-7 text-red-500">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+        </div>
+        <p className="mb-1.5 text-sm font-semibold text-stone-700">Cannot load live activity</p>
+        <p className="max-w-md text-xs leading-relaxed text-stone-500">
+          Frontend cannot reach orchestrator endpoints. Set `NEXT_PUBLIC_API_URL` (and optionally
+          `ORCHESTRATOR_API_URL`) on Vercel to your backend URL, then redeploy frontend.
+        </p>
+      </div>
+    );
+  }
+
   if (taskStatus === "claimed" && !executionId && !loading) {
     return (
       <div className="flex flex-col items-center justify-center px-6 py-20 text-center">
@@ -322,7 +345,8 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
   }
 
   // ── Animated splash if no subtasks are ready yet and it is working ──
-  const isWorking = ["claimed", "in_progress"].includes(taskStatus);
+  const isFailed = execution?.status === "failed";
+  const isWorking = ["claimed", "in_progress"].includes(taskStatus) && !isFailed;
   const hasProgressSteps = steps.length > 0;
   // Previously: `subtasks.length === 0 && steps.length < 3`. 
   // This caused the screen to go blank during triage/planning (steps >= 3 but no subtasks yet).
@@ -345,7 +369,6 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
     execution?.status === "completed" ||
     taskStatus === "completed" ||
     taskStatus === "delivered";
-  const isFailed = execution?.status === "failed";
 
   // Group steps by phase
   const phaseSteps = new Map<string, ProgressStep[]>();
