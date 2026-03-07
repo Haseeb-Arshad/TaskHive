@@ -13,10 +13,13 @@ export async function GET(
   }
 
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
     const res = await fetch(
       `${BACKEND_URL}/orchestrator/tasks/by-task/${taskId}/active`,
-      { next: { revalidate: 0 } }
+      { next: { revalidate: 0 }, signal: controller.signal }
     );
+    clearTimeout(timeout);
 
     const data = await res.json();
     return NextResponse.json(data, { status: res.status });

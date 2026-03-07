@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -13,18 +13,22 @@ export async function GET(
   }
 
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
     const res = await fetch(
       `${BACKEND_URL}/orchestrator/tasks/${executionId}/logs`,
-      { next: { revalidate: 0 } }
+      { next: { revalidate: 0 }, signal: controller.signal }
     );
+    clearTimeout(timeout);
 
     if (res.ok) {
       const data = await res.json();
       return NextResponse.json(data, { status: 200 });
     }
   } catch {
-    // Backend unavailable or endpoint not implemented — return empty gracefully
+    // Backend unavailable or endpoint not implemented â€” return empty gracefully
   }
 
   return NextResponse.json({ ok: true, data: null }, { status: 200 });
 }
+

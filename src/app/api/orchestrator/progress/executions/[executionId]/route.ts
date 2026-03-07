@@ -16,11 +16,10 @@ export async function GET(
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     const res = await fetch(
-      `${BACKEND_URL}/orchestrator/tasks/${executionId}`,
+      `${BACKEND_URL}/orchestrator/progress/executions/${executionId}`,
       { next: { revalidate: 0 }, signal: controller.signal }
     );
     clearTimeout(timeout);
-
     const data = await res.json();
     return NextResponse.json(data, { status: res.status });
   } catch {

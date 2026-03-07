@@ -32,6 +32,7 @@ export function useExecutionProgress(
   const mountedRef = useRef(true);
   const retriesRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -82,11 +83,35 @@ export function useExecutionProgress(
       };
     }
 
+    async function pollSnapshot() {
+      if (!executionId || !mountedRef.current) return;
+      try {
+        const res = await fetch(`/api/orchestrator/progress/executions/${executionId}`);
+        if (!res.ok) return;
+        const json = await res.json();
+        const nextSteps = Array.isArray(json?.data?.steps) ? json.data.steps : [];
+        setSteps((prev) => {
+          if (nextSteps.length === 0) return prev;
+          const map = new Map<number, ProgressStep>();
+          for (const p of prev) map.set(p.index, p);
+          for (const s of nextSteps) {
+            if (typeof s.index === "number") map.set(s.index, s as ProgressStep);
+          }
+          return Array.from(map.values()).sort((a, b) => a.index - b.index);
+        });
+      } catch {
+        // Ignore snapshot polling errors
+      }
+    }
+
     connect();
+    pollSnapshot();
+    pollRef.current = setInterval(pollSnapshot, 5000);
 
     return () => {
       mountedRef.current = false;
       if (timerRef.current) clearTimeout(timerRef.current);
+      if (pollRef.current) clearInterval(pollRef.current);
       if (esRef.current) {
         esRef.current.close();
         esRef.current = null;
