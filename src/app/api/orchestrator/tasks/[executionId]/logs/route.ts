@@ -1,7 +1,7 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { getOrchestratorBaseUrl } from "@/lib/orchestrator-base-url";
 
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const BACKEND_URL = getOrchestratorBaseUrl();
 
 export async function GET(
   _req: NextRequest,
@@ -26,9 +26,8 @@ export async function GET(
       return NextResponse.json(data, { status: 200 });
     }
   } catch {
-    // Backend unavailable or endpoint not implemented â€” return empty gracefully
+    // Backend unavailable or endpoint not implemented; return empty gracefully.
   }
 
   return NextResponse.json({ ok: true, data: null }, { status: 200 });
 }
-

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getOrchestratorBaseUrl } from "@/lib/orchestrator-base-url";
 
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const BACKEND_URL = getOrchestratorBaseUrl();
 
 export const dynamic = "force-dynamic";
 

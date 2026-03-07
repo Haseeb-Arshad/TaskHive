@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useExecutionProgress } from "@/hooks/use-execution-progress";
 import type { ProgressStep } from "@/hooks/use-execution-progress";
+import { useTaskConversation } from "@/hooks/use-task-conversation";
+import type { TaskMessageData } from "@/stores/conversation-store";
+import { StructuredQuestion } from "./structured-question";
 
 /* ═══════════════════════════════════════════════════════════
    TYPES
@@ -11,6 +14,7 @@ import type { ProgressStep } from "@/hooks/use-execution-progress";
 interface AgentActivityTabProps {
   taskId: number;
   taskStatus: string;
+  userId: number;
 }
 
 interface ExecutionData {
@@ -33,6 +37,47 @@ interface SubtaskData {
   status: string;
   result: string | null;
   files_changed: string[] | null;
+}
+
+function deriveSubtasksFromSteps(steps: ProgressStep[]): SubtaskData[] {
+  if (steps.length === 0) return [];
+
+  const byPhase = new Map<string, ProgressStep[]>();
+  for (const step of steps) {
+    const key = String(step.phase || "").trim();
+    if (!key) continue;
+    const list = byPhase.get(key) || [];
+    list.push(step);
+    byPhase.set(key, list);
+  }
+
+  const phases = Array.from(byPhase.keys());
+  if (phases.length === 0) return [];
+
+  const latestPhase = phases[phases.length - 1];
+
+  return phases.map((phase, idx) => {
+    const items = byPhase.get(phase) || [];
+    const last = items[items.length - 1];
+    let status = "completed";
+
+    if (phase === "failed") {
+      status = "failed";
+    } else if (phase === latestPhase) {
+      const donePhases = new Set(["delivery", "complete", "completed", "delivered"]);
+      status = donePhases.has(phase) ? "completed" : "in_progress";
+    }
+
+    return {
+      id: idx + 1,
+      order_index: idx + 1,
+      title: phase.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      description: last?.description || "",
+      status,
+      result: last?.detail || null,
+      files_changed: null,
+    };
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -162,7 +207,7 @@ function AgentProcessingSplash({
    MAIN COMPONENT
    ═══════════════════════════════════════════════════════════ */
 
-export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) {
+export function AgentActivityTab({ taskId, taskStatus, userId }: AgentActivityTabProps) {
   const [executionId, setExecutionId] = useState<number | null>(null);
   const [execution, setExecution] = useState<ExecutionData | null>(null);
   const [subtasks, setSubtasks] = useState<SubtaskData[]>([]);
@@ -171,6 +216,24 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
 
   const { steps, currentPhase, progressPct, connected } =
     useExecutionProgress(executionId);
+  const { messages, respondToQuestion } = useTaskConversation({ taskId, userId });
+
+  const pendingClarificationQuestions = useMemo(() => {
+    return (messages || []).filter((m: TaskMessageData) => {
+      if (m.message_type !== "question") return false;
+      const structured = (m.structured_data || {}) as Record<string, unknown>;
+      const responded = Boolean(structured.responded_at) || Boolean(structured.response);
+      return !responded;
+    });
+  }, [messages]);
+
+  useEffect(() => {
+    if (subtasks.length > 0 || steps.length === 0) return;
+    const derived = deriveSubtasksFromSteps(steps);
+    if (derived.length > 0) {
+      setSubtasks(derived);
+    }
+  }, [steps, subtasks.length]);
 
   // Fetch execution data
   useEffect(() => {
@@ -281,12 +344,40 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
   // Now we wait until we actually have subtasks to show the roadmap.
   if (isWorking && subtasks.length === 0) {
     return (
-      <AgentProcessingSplash
-        currentPhase={currentPhase}
-        latestDetail={hasProgressSteps ? (steps[steps.length - 1].detail || steps[steps.length - 1].description) : null}
-        progressPct={progressPct}
-        fading={false}
-      />
+      <div className="space-y-4">
+        {pendingClarificationQuestions.length > 0 && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+            <p className="text-sm font-semibold text-amber-800">
+              Clarification needed before execution
+            </p>
+            <p className="mt-1 text-xs text-amber-700">
+              Please answer these question(s) so the agent can continue.
+            </p>
+            <div className="mt-3 space-y-3">
+              {pendingClarificationQuestions.map((msg) => (
+                <div key={msg.id} className="rounded-xl border border-amber-200 bg-white p-3">
+                  <p className="text-sm text-stone-700">{msg.content}</p>
+                  {msg.structured_data && (
+                    <StructuredQuestion
+                      structuredData={msg.structured_data}
+                      onRespond={(response, optionIndex) =>
+                        respondToQuestion(msg.id, response, optionIndex)
+                      }
+                      disabled={taskStatus === "completed" || taskStatus === "cancelled"}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        <AgentProcessingSplash
+          currentPhase={currentPhase}
+          latestDetail={hasProgressSteps ? (steps[steps.length - 1].detail || steps[steps.length - 1].description) : null}
+          progressPct={progressPct}
+          fading={false}
+        />
+      </div>
     );
   }
 
@@ -1321,4 +1412,3 @@ function RawLogs({
     </div>
   );
 }
-
