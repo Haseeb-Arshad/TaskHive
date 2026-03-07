@@ -238,6 +238,20 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
           if (!cancelled && json.ok && json.data) {
             const eid = json.data.execution_id;
             setExecutionId(eid);
+            setExecution((prev) => {
+              if (prev && prev.id === eid) return prev;
+              return {
+                id: eid,
+                status: String(json.data.status || "in_progress"),
+                total_tokens_used: 0,
+                total_cost_usd: null,
+                attempt_count: 1,
+                started_at: null,
+                completed_at: null,
+                workspace_path: null,
+                error_message: null,
+              };
+            });
 
             const detailPromise = fetch(`/api/orchestrator/tasks/${eid}`).catch(() => null);
             const previewPromise = fetch(`/api/orchestrator/preview/executions/${eid}`).catch(() => null);

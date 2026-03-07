@@ -4,9 +4,12 @@ import os
 from dotenv import load_dotenv
 from pathlib import Path
 
-load_dotenv(Path("f:/TaskHive/TaskHive") / ".env")
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
-client = TaskHiveClient("http://127.0.0.1:8000", "th_agent_a801b587552cda97f5aaece438827c39ccf6356980205f088acc38d58ec62ae8")
+client = TaskHiveClient(
+    os.environ.get("TASKHIVE_BASE_URL", "http://127.0.0.1:8000"),
+    os.environ.get("TASKHIVE_API_KEY", ""),
+)
 claims = client.get_my_claims("accepted")
 print(json.dumps(claims, indent=2))
 

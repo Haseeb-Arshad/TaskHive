@@ -1,7 +1,8 @@
 import os, httpx
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv('f:/TaskHive/TaskHive/.env')
+load_dotenv(Path(__file__).resolve().parent / ".env")
 anthropic_key = os.environ.get('ANTHROPIC_KEY')
 kimi_key = os.environ.get('KIMI_KEY')
 
