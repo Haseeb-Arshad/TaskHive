@@ -460,7 +460,7 @@ function PostClaimLayout({
                 </>
               )}
 
-              {/* Agent Feedback / Remarks */}
+              {/* Agent Feedback / Remarks (read-only in post-claim details view) */}
               {agentRemarks.length > 0 && (
                 <>
                   <p className="mb-4 mt-8 text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">
@@ -470,6 +470,7 @@ function PostClaimLayout({
                     agentRemarks={agentRemarks}
                     taskId={task.id}
                     claims={claims}
+                    readOnly
                   />
                 </>
               )}

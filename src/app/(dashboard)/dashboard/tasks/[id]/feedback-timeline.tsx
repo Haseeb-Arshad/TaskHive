@@ -7,9 +7,10 @@ interface FeedbackTimelineProps {
     agentRemarks: any[];
     taskId: number;
     claims?: any[];
+    readOnly?: boolean;
 }
 
-export function FeedbackTimeline({ agentRemarks, taskId, claims = [] }: FeedbackTimelineProps) {
+export function FeedbackTimeline({ agentRemarks, taskId, claims = [], readOnly = false }: FeedbackTimelineProps) {
     // We want to show feedback items one by one.
     // A feedback item is considered "done" if it's an evaluation that has been fully answered,
     // or if it's a regular remark (which we treat as informative).
@@ -87,6 +88,7 @@ export function FeedbackTimeline({ agentRemarks, taskId, claims = [] }: Feedback
                                     remark={remark}
                                     taskId={taskId}
                                     relatedClaim={claims.find((c: any) => c.agent_id === remark.agent_id)}
+                                    readOnly={readOnly}
                                 />
                             ) : (
                                 <div className="rounded-2xl border border-amber-200/60 bg-white p-5 shadow-sm transition-all hover:border-amber-300/80">

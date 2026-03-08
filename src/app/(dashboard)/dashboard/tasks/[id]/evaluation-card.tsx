@@ -36,10 +36,12 @@ export function EvaluationCard({
   remark,
   taskId,
   relatedClaim,
+  readOnly: forceReadOnly = false,
 }: {
   remark: RemarkWithEvaluation;
   taskId: number;
   relatedClaim?: any;
+  readOnly?: boolean;
 }) {
   const { evaluation } = remark;
   const router = useRouter();
@@ -59,7 +61,7 @@ export function EvaluationCard({
   // and we don't need to force them to answer anymore.
   // submitted means we successfully sent answers to backend just now.
   const isPreviouslyAnswered = evaluation.questions.some(q => q.answer);
-  const isReadOnly = submitted || isPreviouslyAnswered;
+  const isReadOnly = forceReadOnly || submitted || isPreviouslyAnswered;
 
   const scoreColor =
     evaluation.score <= 3
@@ -187,7 +189,7 @@ export function EvaluationCard({
           </div>
         )}
 
-        {/* ── Follow-up Questions ───────────────── */}
+        {/* ── Follow-up Questions (interactive) ───────────────── */}
         {evaluation.questions.length > 0 && !isReadOnly && (
           <div className="pt-4 mt-2 border-t border-stone-100">
             <h4 className="mb-4 text-sm font-bold text-stone-900">
@@ -242,13 +244,11 @@ export function EvaluationCard({
             {/* Error Message */}
             {submitError && (
               <div className="mt-4 rounded-lg bg-red-50 p-3 flex gap-2 text-sm text-red-700">
-                {/* Assuming AlertCircle is imported or defined */}
-                {/* <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-red-500" /> */}
                 <p>{submitError}</p>
               </div>
             )}
 
-            {/* Actions */}
+            {/* Actions — single submit button */}
             <div className="mt-6 flex items-center justify-end gap-3 pt-2">
               <span className="text-xs font-medium text-stone-500">
                 {unansweredCount > 0
@@ -256,69 +256,62 @@ export function EvaluationCard({
                   : "All answered!"}
               </span>
 
-              {selections && (
+              {hasNewAnswers && (
                 <button
                   onClick={handleSubmit}
                   disabled={isPending || unansweredCount > 0}
                   className="rounded-full bg-blue-600 px-5 py-2 text-xs font-bold text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md disabled:opacity-40"
                 >
-                  {isPending ? "Submitting..." : "Submit Answers"}
+                  {isPending ? "Submitting..." : `Submit ${Object.keys(selections).length} answer${Object.keys(selections).length !== 1 ? "s" : ""}`}
                 </button>
               )}
             </div>
           </div>
         )}
 
-        {isReadOnly && isPreviouslyAnswered && (
+        {/* ── Read-only questions (previously answered or forced read-only) ── */}
+        {isReadOnly && evaluation.questions.length > 0 && (
           <div className="pt-4 mt-2 border-t border-stone-100">
             <h4 className="mb-4 text-sm font-bold text-stone-900 flex items-center gap-2">
               Agent&apos;s Clarification
-              <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] uppercase tracking-wider text-stone-500 font-bold border border-stone-200">Submitted</span>
+              {isPreviouslyAnswered && (
+                <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] uppercase tracking-wider text-stone-500 font-bold border border-stone-200">Submitted</span>
+              )}
+              {forceReadOnly && !isPreviouslyAnswered && (
+                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] uppercase tracking-wider text-amber-600 font-bold border border-amber-200">Pending</span>
+              )}
             </h4>
             <div className="space-y-4">
-              {evaluation.questions.map((q, idx) => {
-                if (!q.answer) return null;
-                return (
-                  <div key={q.id || idx} className="rounded-xl border border-stone-100 bg-stone-50 p-4">
-                    <p className="text-sm font-medium leading-normal text-stone-800 mb-2">
-                      <span className="mr-2 text-stone-400 font-bold">{idx + 1}.</span>
-                      {q.text}
-                    </p>
+              {evaluation.questions.map((q, idx) => (
+                <div key={q.id || idx} className="rounded-xl border border-stone-100 bg-stone-50 p-4">
+                  <p className="text-sm font-medium leading-normal text-stone-800 mb-2">
+                    <span className="mr-2 text-stone-400 font-bold">{idx + 1}.</span>
+                    {q.text}
+                  </p>
+                  {q.answer ? (
                     <div className="pl-6 border-l-2 border-stone-200 mt-2">
-                      <p className="text-sm text-blue-700 font-semibold">{q.answer || selections[q.id]}</p>
+                      <p className="text-sm text-blue-700 font-semibold">{q.answer}</p>
                     </div>
-                  </div>
-                )
-              })}
+                  ) : (
+                    <div className="pl-6 mt-1">
+                      <span className="text-xs text-stone-400 italic">Not yet answered</span>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )}
 
-        {/* ── Submit ───────────────────────────── */}
-        {submitError && (
+        {/* ── Submit error (only in interactive mode) ── */}
+        {!forceReadOnly && submitError && (
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
             {submitError} — please try again.
           </div>
         )}
-        {!submitted && hasNewAnswers && (
-          <button
-            disabled={isPending}
-            onClick={handleSubmit}
-            className="w-full rounded-xl bg-stone-900 py-3 text-sm font-semibold text-white transition-all hover:bg-stone-800 active:scale-[0.99] disabled:opacity-50"
-          >
-            {isPending ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                Saving...
-              </span>
-            ) : (
-              `Submit ${Object.keys(selections).length} answer${Object.keys(selections).length !== 1 ? "s" : ""}`
-            )}
-          </button>
-        )}
 
-        {/* ── Related Claim ─────────────────── */}
-        {relatedClaim && (
+        {/* ── Related Claim (hidden in read-only mode) ─────────────────── */}
+        {!forceReadOnly && relatedClaim && (
           <RelatedClaimPanel claim={relatedClaim} taskId={taskId} />
         )}
       </div>

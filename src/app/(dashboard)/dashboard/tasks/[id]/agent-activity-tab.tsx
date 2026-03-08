@@ -843,6 +843,29 @@ function JourneyMap({
    CHECKPOINT DETAIL PANEL
    ═══════════════════════════════════════════════════════════ */
 
+/** Parse a text description into structured steps (numbered list, bullets, or paragraphs). */
+function parseDescriptionSteps(text: string): { type: "steps" | "text"; items: string[] } {
+  if (!text) return { type: "text", items: [] };
+
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+
+  // Try numbered list: "1. ...", "1) ...", "- ...", "* ..."
+  const stepLines: string[] = [];
+  for (const line of lines) {
+    const match = line.match(/^(?:\d+[\.\)]\s*|[-*]\s+)(.+)/);
+    if (match) {
+      stepLines.push(match[1]);
+    }
+  }
+
+  if (stepLines.length >= 2) {
+    return { type: "steps", items: stepLines };
+  }
+
+  // Fallback: split by sentences or return as paragraphs
+  return { type: "text", items: lines };
+}
+
 function CheckpointDetail({
   subtasks,
   selectedPhase,
@@ -867,12 +890,47 @@ function CheckpointDetail({
   const isCurrent = subtask.status === "in_progress" && !isComplete;
   const isPending = !isDone && !isCurrent;
 
-  // Filter steps tied specifically to this subtask
-  const phaseSteps = steps.filter((step) => String(step.subtask_id) === String(subtask.id));
+  // Match progress steps to this subtask using multiple strategies:
+  // 1. Direct subtask_id match (if the backend provides it)
+  // 2. Phase name match (for derived subtasks where title = phase name)
+  // 3. Order-based match for real subtasks (map subtask index to execution-phase steps)
+  const phaseSteps = useMemo(() => {
+    // Strategy 1: direct subtask_id match
+    const byId = steps.filter((step) => step.subtask_id != null && String(step.subtask_id) === String(subtask.id));
+    if (byId.length > 0) return byId;
+
+    // Strategy 2: phase name match (for derived subtasks)
+    const phaseKey = subtask.title.toLowerCase().replace(/\s+/g, "_");
+    const byPhase = steps.filter((step) => step.phase === phaseKey);
+    if (byPhase.length > 0) return byPhase;
+
+    // Strategy 3: for real planning subtasks, distribute execution-phase steps
+    // across subtasks proportionally based on order
+    const executionSteps = steps.filter((s) => s.phase === "execution" || s.phase === "complex_execution");
+    if (executionSteps.length > 0 && subtasks.length > 0) {
+      // Check if this looks like a real subtask (not derived from phases)
+      const derivedPhaseNames = new Set(["triage", "clarification", "planning", "execution", "complex_execution", "review", "deployment", "delivery", "failed"]);
+      const isRealSubtask = !derivedPhaseNames.has(phaseKey);
+
+      if (isRealSubtask) {
+        const chunkSize = Math.ceil(executionSteps.length / subtasks.length);
+        const start = activeSubtaskIndex * chunkSize;
+        const end = Math.min(start + chunkSize, executionSteps.length);
+        if (start < executionSteps.length) {
+          return executionSteps.slice(start, end);
+        }
+      }
+    }
+
+    return [];
+  }, [steps, subtask, subtasks, activeSubtaskIndex]);
+
+  // Parse description into structured steps
+  const descSteps = useMemo(() => parseDescriptionSteps(subtask.description), [subtask.description]);
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Phase header card (Like the reference image's checkpoint boxes) */}
+      {/* Phase header card */}
       <div className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between">
           <span
@@ -887,7 +945,6 @@ function CheckpointDetail({
           </span>
           {isDone && (
             <span className="text-xs text-stone-400">
-              {/* Just a mock date like the reference */}
               <svg xmlns="http://www.w3.org/2000/svg" className="inline-block mr-1 h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
               Today
             </span>
@@ -898,26 +955,88 @@ function CheckpointDetail({
           Checkpoint {activeSubtaskIndex + 1}: {subtask.title}
         </h3>
 
-        {/* Mock perks/details list like the image reference */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-3 rounded-lg bg-stone-50 px-3 py-2 text-sm text-stone-600">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-stone-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 2l-2 2H5l-2-2m20 9l-2 2H5L3 11m20 9l-2 2H5l-2-2M12 2v20 M7 2v20 M17 2v20" /></svg>
-            Review Checkpoint Details
+        {/* Implementation steps — rendered from description */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-stone-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>
+            <p className="text-[10px] font-bold uppercase tracking-[.12em] text-stone-400">
+              Implementation Plan
+            </p>
           </div>
 
-          <div className="text-xs text-stone-500 bg-white border border-stone-100 p-3 rounded-lg leading-relaxed">
-            {subtask.description}
-          </div>
+          {descSteps.type === "steps" ? (
+            <div className="space-y-2">
+              {descSteps.items.map((step, i) => (
+                <div
+                  key={i}
+                  className="flex items-start gap-3 rounded-lg border border-stone-100 bg-stone-50/80 px-3 py-2.5"
+                >
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-stone-200 text-[9px] font-bold text-stone-600 mt-0.5">
+                    {i + 1}
+                  </span>
+                  <p className="text-xs leading-relaxed text-stone-700">{step}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-stone-100 bg-stone-50/80 p-3">
+              {descSteps.items.map((line, i) => (
+                <p key={i} className="text-xs leading-relaxed text-stone-700 mb-1 last:mb-0">
+                  {line}
+                </p>
+              ))}
+              {descSteps.items.length === 0 && (
+                <p className="text-xs text-stone-400 italic">No description available</p>
+              )}
+            </div>
+          )}
+
+          {/* Result — what the agent actually did */}
+          {subtask.result && (
+            <div className="mt-3">
+              <div className="flex items-center gap-2 mb-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
+                <p className="text-[10px] font-bold uppercase tracking-[.12em] text-emerald-600">
+                  Result
+                </p>
+              </div>
+              <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3">
+                <p className="text-xs leading-relaxed text-emerald-900 whitespace-pre-wrap">{subtask.result}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Files changed */}
+          {subtask.files_changed && subtask.files_changed.length > 0 && (
+            <div className="mt-3">
+              <div className="flex items-center gap-2 mb-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /></svg>
+                <p className="text-[10px] font-bold uppercase tracking-[.12em] text-blue-600">
+                  Files Changed ({subtask.files_changed.length})
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {subtask.files_changed.map((f: string, j: number) => (
+                  <span
+                    key={j}
+                    className="rounded-md bg-blue-50 border border-blue-100 px-2 py-1 text-[10px] font-mono text-blue-700"
+                  >
+                    {f.split("/").pop()}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           {isDone && (
             <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 font-medium mt-3">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M12 8v4l3 3" /></svg>
-              {subtask.title} Phase Successfully Cleared!
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12" /></svg>
+              Checkpoint completed successfully
             </div>
           )}
         </div>
 
-        {/* Thinking / status text */}
+        {/* Thinking / status text for current step */}
         {isCurrent && phaseSteps.length > 0 && (
           <div className="mt-4 flex items-center gap-2 rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-600 border border-stone-200">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
@@ -926,7 +1045,7 @@ function CheckpointDetail({
         )}
       </div>
 
-      {/* Steps timeline */}
+      {/* Agent's thinking process timeline */}
       {phaseSteps.length > 0 && (
         <div className="rounded-xl border border-stone-200 bg-white p-4">
           <p className="mb-3 text-[10px] font-bold uppercase tracking-[.12em] text-stone-400">
@@ -990,45 +1109,8 @@ function CheckpointDetail({
         </div>
       )}
 
-      {/* Phase subtasks (for Plan / Execute) */}
-      <div className="rounded-xl border border-stone-200 bg-white p-4 mt-4">
-        <p className="mb-3 text-[10px] font-bold uppercase tracking-[.12em] text-stone-400">
-          Subtask Scope
-        </p>
-        <div className="space-y-2">
-          <div
-            key={subtask.id}
-            className="flex items-start gap-2 rounded-lg border border-stone-100 px-3 py-2.5 transition-colors bg-stone-50"
-          >
-            <SubtaskStatusIcon status={subtask.status} />
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium text-stone-700">
-                {subtask.title}
-              </p>
-              {subtask.files_changed && subtask.files_changed.length > 0 && (
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {subtask.files_changed.slice(0, 3).map((f: string, j: number) => (
-                    <span
-                      key={j}
-                      className="rounded bg-white px-1 py-0.5 text-[9px] font-mono text-stone-500 border border-stone-100"
-                    >
-                      {f.split("/").pop()}
-                    </span>
-                  ))}
-                  {subtask.files_changed.length > 3 && (
-                    <span className="text-[9px] text-stone-400 font-medium">
-                      +{subtask.files_changed.length - 3} files
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Empty state for pending phases */}
-      {isPending && steps.length === 0 && (
+      {isPending && phaseSteps.length === 0 && (
         <div className="rounded-xl border border-dashed border-stone-200 bg-stone-50/50 px-4 py-8 text-center">
           <p className="text-xs text-stone-400">
             This checkpoint hasn&apos;t started yet.
