@@ -38,6 +38,51 @@ interface SubtaskData {
 function deriveSubtasksFromSteps(steps: ProgressStep[]): SubtaskData[] {
   if (steps.length === 0) return [];
 
+  // Preferred fallback: derive roadmap from planning metadata when available.
+  // This preserves real subtask/checklist titles before DB subtasks are returned.
+  const planningWithMetadata = [...steps]
+    .reverse()
+    .find(
+      (step) =>
+        step.phase === "planning" &&
+        Array.isArray((step.metadata as Record<string, unknown> | undefined)?.subtasks),
+    );
+
+  if (planningWithMetadata) {
+    const raw = (planningWithMetadata.metadata as Record<string, unknown>).subtasks;
+    const titles = Array.isArray(raw)
+      ? raw.filter((t): t is string => typeof t === "string" && t.trim().length > 0)
+      : [];
+
+    if (titles.length > 0) {
+      const latest = steps[steps.length - 1];
+      const donePhases = new Set(["delivery", "complete", "completed", "delivered"]);
+      const failed = latest.phase === "failed";
+      const finished = donePhases.has(latest.phase);
+
+      return titles.map((title, idx) => {
+        let status = "pending";
+        if (finished) {
+          status = "completed";
+        } else if (failed && idx === 0) {
+          status = "failed";
+        } else if (idx === 0) {
+          status = "in_progress";
+        }
+
+        return {
+          id: idx + 1,
+          order_index: idx + 1,
+          title,
+          description: "",
+          status,
+          result: null,
+          files_changed: null,
+        };
+      });
+    }
+  }
+
   const byPhase = new Map<string, ProgressStep[]>();
   for (const step of steps) {
     const key = String(step.phase || "").trim();
@@ -211,9 +256,17 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
   const [backendUnavailable, setBackendUnavailable] = useState(false);
   const [selectedPhase, setSelectedPhase] = useState<string | null>(null);
 
+  // Track whether we've received real subtasks from the API (vs derived from SSE phases).
+  // Once the backend returns actual planning subtasks, we never fall back to derivation.
+  const hasApiSubtasks = useRef(false);
+
   const { steps, currentPhase, progressPct, connected } =
     useExecutionProgress(executionId);
+
+  // Derive subtasks from SSE phase steps ONLY as a fallback when the API
+  // hasn't returned real planning subtasks yet.
   useEffect(() => {
+    if (hasApiSubtasks.current) return; // Real subtasks from API take priority
     if (subtasks.length > 0 || steps.length === 0) return;
     const derived = deriveSubtasksFromSteps(steps);
     if (derived.length > 0) {
@@ -265,8 +318,14 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
 
             if (previewRes?.ok) {
               const preview = await previewRes.json().catch(() => null);
-              if (!cancelled && preview?.data?.subtasks) {
-                setSubtasks(preview.data.subtasks);
+              // Only replace subtasks when the API returns a non-empty array.
+              // Empty results (planning not done yet) should NOT clear derived subtasks.
+              const apiSubtasks = preview?.data?.subtasks;
+              if (!cancelled && Array.isArray(apiSubtasks) && apiSubtasks.length > 0) {
+                hasApiSubtasks.current = true;
+                setSubtasks(apiSubtasks);
+                // Reset selection since real subtask IDs differ from derived ones
+                setSelectedPhase(null);
               }
             }
           }
@@ -279,8 +338,15 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
     }
 
     fetchData();
-    // Poll faster (5s) when claimed but no execution yet, slower (15s) once running
-    const pollMs = (taskStatus === "claimed" && !executionId) ? 5_000 : 15_000;
+    // Poll faster while the agent is actively working so checklist/subtask state
+    // and execution metadata stay fresh between SSE events.
+    const needsSubtasks = !hasApiSubtasks.current;
+    const isLivePhase = ["claimed", "in_progress"].includes(taskStatus);
+    const pollMs = (taskStatus === "claimed" && !executionId)
+      ? 4_000
+      : isLivePhase
+        ? (needsSubtasks ? 5_000 : 7_000)
+        : 15_000;
     const interval = setInterval(fetchData, pollMs);
     return () => {
       cancelled = true;
@@ -487,8 +553,6 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
             selectedPhase={activePhase}
             steps={steps}
             isComplete={isComplete}
-            isFailed={isFailed}
-            isActive={isActive}
           />
         </div>
       </div>
@@ -843,27 +907,51 @@ function JourneyMap({
    CHECKPOINT DETAIL PANEL
    ═══════════════════════════════════════════════════════════ */
 
-/** Parse a text description into structured steps (numbered list, bullets, or paragraphs). */
-function parseDescriptionSteps(text: string): { type: "steps" | "text"; items: string[] } {
+interface ParsedDescriptionItem {
+  text: string;
+  checked?: boolean;
+}
+
+/** Parse text into checklist/steps/plain text blocks for richer UI rendering. */
+function parseDescriptionSteps(text: string): {
+  type: "checklist" | "steps" | "text";
+  items: ParsedDescriptionItem[];
+} {
   if (!text) return { type: "text", items: [] };
 
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
 
-  // Try numbered list: "1. ...", "1) ...", "- ...", "* ..."
-  const stepLines: string[] = [];
+  const checklistItems: ParsedDescriptionItem[] = [];
+  const stepItems: ParsedDescriptionItem[] = [];
+
   for (const line of lines) {
-    const match = line.match(/^(?:\d+[\.\)]\s*|[-*]\s+)(.+)/);
-    if (match) {
-      stepLines.push(match[1]);
+    const checklistMatch = line.match(/^(?:[-*]\s*)?\[(x|X|\s)\]\s+(.+)/);
+    if (checklistMatch) {
+      checklistItems.push({
+        text: checklistMatch[2],
+        checked: checklistMatch[1].toLowerCase() === "x",
+      });
+      continue;
+    }
+
+    const stepMatch = line.match(/^(?:\d+[\.\)]\s*|[-*]\s+)(.+)/);
+    if (stepMatch) {
+      stepItems.push({ text: stepMatch[1] });
     }
   }
 
-  if (stepLines.length >= 2) {
-    return { type: "steps", items: stepLines };
+  if (checklistItems.length >= 2) {
+    return { type: "checklist", items: checklistItems };
   }
 
-  // Fallback: split by sentences or return as paragraphs
-  return { type: "text", items: lines };
+  if (stepItems.length >= 2) {
+    return { type: "steps", items: stepItems };
+  }
+
+  return {
+    type: "text",
+    items: lines.map((line) => ({ text: line })),
+  };
 }
 
 function CheckpointDetail({
@@ -871,23 +959,17 @@ function CheckpointDetail({
   selectedPhase,
   steps,
   isComplete,
-  isFailed,
-  isActive,
 }: {
   subtasks: SubtaskData[];
   selectedPhase: string;
   steps: ProgressStep[];
   isComplete: boolean;
-  isFailed: boolean;
-  isActive: boolean;
 }) {
   const activeSubtaskIndex = subtasks.findIndex((s) => String(s.id) === selectedPhase);
   const subtask = subtasks[activeSubtaskIndex];
 
-  if (!subtask) return null;
-
-  const isDone = isComplete || subtask.status === "completed";
-  const isCurrent = subtask.status === "in_progress" && !isComplete;
+  const isDone = !!subtask && (isComplete || subtask.status === "completed");
+  const isCurrent = !!subtask && subtask.status === "in_progress" && !isComplete;
   const isPending = !isDone && !isCurrent;
 
   // Match progress steps to this subtask using multiple strategies:
@@ -895,6 +977,8 @@ function CheckpointDetail({
   // 2. Phase name match (for derived subtasks where title = phase name)
   // 3. Order-based match for real subtasks (map subtask index to execution-phase steps)
   const phaseSteps = useMemo(() => {
+    if (!subtask) return [];
+
     // Strategy 1: direct subtask_id match
     const byId = steps.filter((step) => step.subtask_id != null && String(step.subtask_id) === String(subtask.id));
     if (byId.length > 0) return byId;
@@ -926,7 +1010,12 @@ function CheckpointDetail({
   }, [steps, subtask, subtasks, activeSubtaskIndex]);
 
   // Parse description into structured steps
-  const descSteps = useMemo(() => parseDescriptionSteps(subtask.description), [subtask.description]);
+  const descSteps = useMemo(
+    () => parseDescriptionSteps(subtask?.description || ""),
+    [subtask?.description],
+  );
+
+  if (!subtask) return null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -964,17 +1053,26 @@ function CheckpointDetail({
             </p>
           </div>
 
-          {descSteps.type === "steps" ? (
+          {descSteps.type !== "text" ? (
             <div className="space-y-2">
               {descSteps.items.map((step, i) => (
                 <div
                   key={i}
                   className="flex items-start gap-3 rounded-lg border border-stone-100 bg-stone-50/80 px-3 py-2.5"
                 >
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-stone-200 text-[9px] font-bold text-stone-600 mt-0.5">
-                    {i + 1}
-                  </span>
-                  <p className="text-xs leading-relaxed text-stone-700">{step}</p>
+                  {descSteps.type === "checklist" ? (
+                    <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[9px] font-bold ${step.checked
+                        ? "border-emerald-300 bg-emerald-100 text-emerald-700"
+                        : "border-stone-300 bg-white text-stone-400"
+                      }`}>
+                      {step.checked ? "\u2713" : ""}
+                    </span>
+                  ) : (
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-stone-200 text-[9px] font-bold text-stone-600">
+                      {i + 1}
+                    </span>
+                  )}
+                  <p className="text-xs leading-relaxed text-stone-700">{step.text}</p>
                 </div>
               ))}
             </div>
@@ -982,7 +1080,7 @@ function CheckpointDetail({
             <div className="rounded-lg border border-stone-100 bg-stone-50/80 p-3">
               {descSteps.items.map((line, i) => (
                 <p key={i} className="text-xs leading-relaxed text-stone-700 mb-1 last:mb-0">
-                  {line}
+                  {line.text}
                 </p>
               ))}
               {descSteps.items.length === 0 && (
@@ -1237,6 +1335,13 @@ function ActivityLog({
         >
           {recentActivity.map((step, i) => (
             <div key={i} className="flex items-start gap-2 py-0.5">
+              <span className="shrink-0 text-stone-500">{(() => {
+                const raw = Number(step.timestamp);
+                const date = Number.isFinite(raw)
+                  ? new Date(raw > 1e12 ? raw : raw * 1000)
+                  : new Date(step.timestamp);
+                return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+              })()}</span>
               <span className="shrink-0 text-stone-600 select-none">$</span>
               <span className="text-emerald-400/80">[{step.phase}]</span>
               <span className="text-stone-300">

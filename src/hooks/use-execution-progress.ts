@@ -40,6 +40,29 @@ export function useExecutionProgress(
     setSteps([]);
     setConnected(false);
 
+    function mergeStepLists(prev: ProgressStep[], incoming: ProgressStep[]): ProgressStep[] {
+      if (incoming.length === 0) return prev;
+      const map = new Map<number, ProgressStep>();
+      for (const p of prev) {
+        if (typeof p.index === "number") map.set(p.index, p);
+      }
+      for (const step of incoming) {
+        if (typeof step.index !== "number") continue;
+        const existing = map.get(step.index);
+        if (!existing) {
+          map.set(step.index, step);
+          continue;
+        }
+        // Keep the richer/newer version of the same index
+        const next =
+          JSON.stringify(existing) === JSON.stringify(step)
+            ? existing
+            : { ...existing, ...step };
+        map.set(step.index, next);
+      }
+      return Array.from(map.values()).sort((a, b) => a.index - b.index);
+    }
+
     function connect() {
       if (!executionId || !mountedRef.current) return;
 
@@ -52,14 +75,19 @@ export function useExecutionProgress(
       );
       esRef.current = es;
 
-      es.addEventListener("progress", (e) => {
+      const onProgress = (e: MessageEvent<string>) => {
         if (!mountedRef.current) return;
-        const step: ProgressStep = JSON.parse(e.data);
-        setSteps((prev) => {
-          if (prev.some((s) => s.index === step.index)) return prev;
-          return [...prev, step].sort((a, b) => a.index - b.index);
-        });
-      });
+        try {
+          const step: ProgressStep = JSON.parse(e.data);
+          setSteps((prev) => mergeStepLists(prev, [step]));
+        } catch {
+          // Ignore malformed events
+        }
+      };
+
+      es.addEventListener("progress", onProgress);
+      // Fallback for stream implementations that don't set explicit event names.
+      es.onmessage = onProgress;
 
       es.onopen = () => {
         if (mountedRef.current) {
@@ -89,16 +117,8 @@ export function useExecutionProgress(
         const res = await fetch(`/api/orchestrator/progress/executions/${executionId}`);
         if (!res.ok) return;
         const json = await res.json();
-        const nextSteps = Array.isArray(json?.data?.steps) ? json.data.steps : [];
-        setSteps((prev) => {
-          if (nextSteps.length === 0) return prev;
-          const map = new Map<number, ProgressStep>();
-          for (const p of prev) map.set(p.index, p);
-          for (const s of nextSteps) {
-            if (typeof s.index === "number") map.set(s.index, s as ProgressStep);
-          }
-          return Array.from(map.values()).sort((a, b) => a.index - b.index);
-        });
+        const nextSteps = Array.isArray(json?.data?.steps) ? (json.data.steps as ProgressStep[]) : [];
+        setSteps((prev) => mergeStepLists(prev, nextSteps));
       } catch {
         // Ignore snapshot polling errors
       }
@@ -106,7 +126,7 @@ export function useExecutionProgress(
 
     connect();
     pollSnapshot();
-    pollRef.current = setInterval(pollSnapshot, 5000);
+    pollRef.current = setInterval(pollSnapshot, 3000);
 
     return () => {
       mountedRef.current = false;

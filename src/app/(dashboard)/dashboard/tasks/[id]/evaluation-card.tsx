@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { submitEvaluationAnswers, acceptClaim } from "@/lib/actions/tasks";
 
 interface EvaluationQuestion {
-  id: string;
+  id?: string;
   text: string;
   type: "multiple_choice" | "yes_no" | "text_input" | "scale";
   options?: string[];
@@ -37,22 +37,28 @@ export function EvaluationCard({
   taskId,
   relatedClaim,
   readOnly: forceReadOnly = false,
+  taskStatus,
 }: {
   remark: RemarkWithEvaluation;
   taskId: number;
   relatedClaim?: any;
   readOnly?: boolean;
+  taskStatus?: string;
 }) {
   const { evaluation } = remark;
   const router = useRouter();
+  const normalizedQuestions = evaluation.questions.map((q, idx) => ({
+    ...q,
+    id: q.id || `q-${idx + 1}`,
+  }));
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(
-    evaluation.questions.length > 0 && evaluation.questions.every((q) => !!q.answer)
+    normalizedQuestions.length > 0 && normalizedQuestions.every((q) => !!q.answer)
   );
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const unansweredCount = evaluation.questions.filter(
+  const unansweredCount = normalizedQuestions.filter(
     (q) => !q.answer && !selections[q.id]
   ).length;
   const hasNewAnswers = Object.keys(selections).length > 0;
@@ -60,8 +66,10 @@ export function EvaluationCard({
   // Hide the entire form if it's already answered, or if it wasn't answered
   // and we don't need to force them to answer anymore.
   // submitted means we successfully sent answers to backend just now.
-  const isPreviouslyAnswered = evaluation.questions.some(q => q.answer);
-  const isReadOnly = forceReadOnly || submitted || isPreviouslyAnswered;
+  const isPreviouslyAnswered =
+    normalizedQuestions.length > 0 && normalizedQuestions.every((q) => !!q.answer);
+  const isTaskClosed = taskStatus === "completed" || taskStatus === "cancelled";
+  const isReadOnly = forceReadOnly || submitted || isPreviouslyAnswered || isTaskClosed;
 
   const scoreColor =
     evaluation.score <= 3
@@ -190,13 +198,13 @@ export function EvaluationCard({
         )}
 
         {/* ── Follow-up Questions (interactive) ───────────────── */}
-        {evaluation.questions.length > 0 && !isReadOnly && (
+        {normalizedQuestions.length > 0 && !isReadOnly && (
           <div className="pt-4 mt-2 border-t border-stone-100">
             <h4 className="mb-4 text-sm font-bold text-stone-900">
               Agent&apos;s Clarification
             </h4>
             <div className="space-y-6">
-              {evaluation.questions.map((q, idx) => (
+              {normalizedQuestions.map((q, idx) => (
                 <div key={q.id || idx} className="space-y-3">
                   <p className="text-sm font-medium leading-normal text-stone-800">
                     <span className="mr-2 text-stone-400 font-bold">{idx + 1}.</span>
@@ -270,19 +278,22 @@ export function EvaluationCard({
         )}
 
         {/* ── Read-only questions (previously answered or forced read-only) ── */}
-        {isReadOnly && evaluation.questions.length > 0 && (
+        {isReadOnly && normalizedQuestions.length > 0 && (
           <div className="pt-4 mt-2 border-t border-stone-100">
             <h4 className="mb-4 text-sm font-bold text-stone-900 flex items-center gap-2">
               Agent&apos;s Clarification
               {isPreviouslyAnswered && (
                 <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] uppercase tracking-wider text-stone-500 font-bold border border-stone-200">Submitted</span>
               )}
+              {isTaskClosed && !isPreviouslyAnswered && (
+                <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] uppercase tracking-wider text-stone-500 font-bold border border-stone-200">Closed</span>
+              )}
               {forceReadOnly && !isPreviouslyAnswered && (
                 <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] uppercase tracking-wider text-amber-600 font-bold border border-amber-200">Pending</span>
               )}
             </h4>
             <div className="space-y-4">
-              {evaluation.questions.map((q, idx) => (
+              {normalizedQuestions.map((q, idx) => (
                 <div key={q.id || idx} className="rounded-xl border border-stone-100 bg-stone-50 p-4">
                   <p className="text-sm font-medium leading-normal text-stone-800 mb-2">
                     <span className="mr-2 text-stone-400 font-bold">{idx + 1}.</span>

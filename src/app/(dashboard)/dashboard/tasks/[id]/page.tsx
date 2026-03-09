@@ -275,6 +275,8 @@ function PreClaimLayout({
                 agentRemarks={agentRemarks}
                 taskId={task.id}
                 claims={claims}
+                taskStatus={task.status}
+                taskMessages={task.messages || []}
               />
             </div>
           )}
@@ -470,6 +472,8 @@ function PostClaimLayout({
                     agentRemarks={agentRemarks}
                     taskId={task.id}
                     claims={claims}
+                    taskStatus={task.status}
+                    taskMessages={task.messages || []}
                     readOnly
                   />
                 </>
