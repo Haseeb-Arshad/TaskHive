@@ -12,75 +12,14 @@ interface FeedbackTimelineProps {
   taskMessages?: any[];
 }
 
-interface ThreadNode {
-  id: number;
-  sender: string;
-  senderType: string;
-  content: string;
-  messageType: string;
-  createdAt: string;
-  children: ThreadNode[];
-}
-
-const MAX_TREE_DEPTH = 6;
-
-function toTime(ts: string | undefined): number {
-  if (!ts) return 0;
-  const n = new Date(ts).getTime();
-  return Number.isNaN(n) ? 0 : n;
-}
-
-function isRemarkDone(remark: any) {
+function isRemarkDone(remark: any, responseMap: Record<string, string>) {
   if (!remark?.evaluation) return true;
   const questions = remark.evaluation?.questions;
   if (!Array.isArray(questions) || questions.length === 0) return true;
-  return questions.every((q: any) => !!q?.answer);
-}
-
-function buildThread(
-  parentId: number,
-  byParent: Map<number, any[]>,
-  depth = 0,
-): ThreadNode[] {
-  if (depth >= MAX_TREE_DEPTH) return [];
-  const children = byParent.get(parentId) || [];
-  return children.map((msg) => ({
-    id: msg.id,
-    sender: msg.sender_name || (msg.sender_type === "poster" ? "You" : "Agent"),
-    senderType: msg.sender_type || "agent",
-    content: msg.content || "",
-    messageType: msg.message_type || "text",
-    createdAt: msg.created_at || "",
-    children: buildThread(msg.id, byParent, depth + 1),
-  }));
-}
-
-function FollowupTree({ nodes, depth = 0 }: { nodes: ThreadNode[]; depth?: number }) {
-  if (nodes.length === 0) return null;
-  return (
-    <div className={`${depth > 0 ? "ml-5 pl-4 border-l border-stone-200" : ""} space-y-3`}>
-      {nodes.map((node) => {
-        const isPoster = node.senderType === "poster";
-        const isQuestion = node.messageType === "question";
-        return (
-          <div key={node.id} className="rounded-xl border border-stone-100 bg-stone-50/70 px-3 py-2.5">
-            <div className="mb-1.5 flex items-center gap-2">
-              <span className={`h-2 w-2 rounded-full ${isPoster ? "bg-[#E5484D]" : "bg-blue-500"}`} />
-              <span className="text-[11px] font-semibold text-stone-700">{node.sender}</span>
-              <span className="rounded-full border border-stone-200 bg-white px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-stone-500">
-                {isQuestion ? "Question" : isPoster ? "Reply" : "Follow-up"}
-              </span>
-              <span className="ml-auto text-[10px] text-stone-400">
-                {node.createdAt ? new Date(node.createdAt).toLocaleString() : ""}
-              </span>
-            </div>
-            <p className="text-xs leading-relaxed text-stone-700 whitespace-pre-wrap">{node.content}</p>
-            {node.children.length > 0 && <FollowupTree nodes={node.children} depth={depth + 1} />}
-          </div>
-        );
-      })}
-    </div>
-  );
+  return questions.every((q: any, idx: number) => {
+    const qid = String(q?.id || `q-${idx + 1}`);
+    return !!q?.answer || !!responseMap[qid];
+  });
 }
 
 export function FeedbackTimeline({
@@ -93,10 +32,30 @@ export function FeedbackTimeline({
 }: FeedbackTimelineProps) {
   const [activeStep, setActiveStep] = useState(0);
 
+  const responseMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    let fallbackIndex = 0;
+    for (const msg of taskMessages) {
+      if (!msg || msg.message_type !== "question") continue;
+      const structured = (msg.structured_data || {}) as Record<string, unknown>;
+      const qid = String(structured.question_id || "").trim();
+      const response = String(structured.response || "").trim();
+      if (!response) continue;
+      if (qid) {
+        map[qid] = response;
+        continue;
+      }
+      fallbackIndex += 1;
+      const fallbackKey = `q-${fallbackIndex}`;
+      if (!map[fallbackKey]) map[fallbackKey] = response;
+    }
+    return map;
+  }, [taskMessages]);
+
   const firstIncompleteIndex = useMemo(() => {
-    const idx = agentRemarks.findIndex((r) => !isRemarkDone(r));
+    const idx = agentRemarks.findIndex((r) => !isRemarkDone(r, responseMap));
     return idx === -1 ? agentRemarks.length : idx;
-  }, [agentRemarks]);
+  }, [agentRemarks, responseMap]);
 
   useEffect(() => {
     if (agentRemarks.length === 0) return;
@@ -105,62 +64,6 @@ export function FeedbackTimeline({
       : firstIncompleteIndex;
     setActiveStep(next);
   }, [agentRemarks.length, firstIncompleteIndex]);
-
-  const sortedMessages = useMemo(() => {
-    return [...taskMessages]
-      .filter((m) => m && typeof m.id === "number")
-      .sort((a, b) => toTime(a.created_at) - toTime(b.created_at));
-  }, [taskMessages]);
-
-  const treeByRemarkIndex = useMemo(() => {
-    const result = new Map<number, ThreadNode[]>();
-    if (sortedMessages.length === 0 || agentRemarks.length === 0) return result;
-
-    const byParent = new Map<number, any[]>();
-    for (const msg of sortedMessages) {
-      if (msg.parent_id == null) continue;
-      const list = byParent.get(msg.parent_id) || [];
-      list.push(msg);
-      byParent.set(msg.parent_id, list);
-    }
-
-    const usedRootIds = new Set<number>();
-    for (let idx = 0; idx < agentRemarks.length; idx++) {
-      const remark = agentRemarks[idx];
-      const remarkText = String(remark?.remark || "").trim();
-      const remarkTs = toTime(remark?.timestamp);
-      const agentId = Number(remark?.agent_id || 0);
-
-      let candidates = sortedMessages.filter((m) => {
-        if (usedRootIds.has(m.id)) return false;
-        if (m.sender_type !== "agent") return false;
-        if (agentId && Number(m.sender_id || 0) !== agentId) return false;
-        return ["evaluation", "remark", "text"].includes(String(m.message_type || ""));
-      });
-
-      if (remarkText) {
-        const exact = candidates.filter((m) => String(m.content || "").trim() === remarkText);
-        if (exact.length > 0) candidates = exact;
-      }
-
-      if (candidates.length === 0) {
-        result.set(idx, []);
-        continue;
-      }
-
-      candidates.sort((a, b) => {
-        const aDelta = Math.abs(toTime(a.created_at) - remarkTs);
-        const bDelta = Math.abs(toTime(b.created_at) - remarkTs);
-        return aDelta - bDelta;
-      });
-
-      const root = candidates[0];
-      usedRootIds.add(root.id);
-      result.set(idx, buildThread(root.id, byParent));
-    }
-
-    return result;
-  }, [agentRemarks, sortedMessages]);
 
   if (agentRemarks.length === 0) return null;
 
@@ -171,7 +74,6 @@ export function FeedbackTimeline({
         const isLast = idx === activeStep;
         const isDone = idx < firstIncompleteIndex;
         const isPrevDone = idx === 0 || idx - 1 < firstIncompleteIndex;
-        const treeNodes = treeByRemarkIndex.get(idx) || [];
 
         return (
           <div
@@ -195,7 +97,7 @@ export function FeedbackTimeline({
               )}
             </div>
 
-            <div className="pt-px space-y-3">
+            <div className="pt-px">
               {remark.evaluation ? (
                 <EvaluationCard
                   remark={remark}
@@ -203,6 +105,7 @@ export function FeedbackTimeline({
                   relatedClaim={claims.find((c: any) => c.agent_id === remark.agent_id)}
                   readOnly={readOnly}
                   taskStatus={taskStatus}
+                  messageResponses={responseMap}
                 />
               ) : (
                 <div className="rounded-2xl border border-amber-200/60 bg-white p-5 shadow-sm transition-all hover:border-amber-300/80">
@@ -221,19 +124,12 @@ export function FeedbackTimeline({
                   <p className="text-sm leading-relaxed text-amber-900">{remark.remark}</p>
                 </div>
               )}
-
-              {treeNodes.length > 0 && (
-                <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
-                  <p className="mb-3 text-[10px] font-bold uppercase tracking-[.12em] text-stone-400">Follow-up Thread</p>
-                  <FollowupTree nodes={treeNodes} />
-                </div>
-              )}
             </div>
           </div>
         );
       })}
 
-      {activeStep < agentRemarks.length - 1 && isRemarkDone(agentRemarks[activeStep]) && (
+      {activeStep < agentRemarks.length - 1 && isRemarkDone(agentRemarks[activeStep], responseMap) && (
         <div className="relative pb-8 animate-in fade-in duration-1000">
           <div className="absolute bottom-0 left-[-48px] top-0 flex w-12 flex-col items-center">
             <div className="w-0.5 h-6 shrink-0 bg-emerald-500" />

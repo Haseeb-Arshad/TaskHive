@@ -38,12 +38,14 @@ export function EvaluationCard({
   relatedClaim,
   readOnly: forceReadOnly = false,
   taskStatus,
+  messageResponses = {},
 }: {
   remark: RemarkWithEvaluation;
   taskId: number;
   relatedClaim?: any;
   readOnly?: boolean;
   taskStatus?: string;
+  messageResponses?: Record<string, string>;
 }) {
   const { evaluation } = remark;
   const router = useRouter();
@@ -51,15 +53,20 @@ export function EvaluationCard({
     ...q,
     id: q.id || `q-${idx + 1}`,
   }));
+
+  const getResolvedAnswer = (q: { id: string; answer?: string }) => {
+    return String(q.answer || messageResponses[q.id] || "").trim();
+  };
+
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(
-    normalizedQuestions.length > 0 && normalizedQuestions.every((q) => !!q.answer)
+    normalizedQuestions.length > 0 && normalizedQuestions.every((q) => !!getResolvedAnswer(q))
   );
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const unansweredCount = normalizedQuestions.filter(
-    (q) => !q.answer && !selections[q.id]
+    (q) => !getResolvedAnswer(q) && !selections[q.id]
   ).length;
   const hasNewAnswers = Object.keys(selections).length > 0;
 
@@ -67,7 +74,7 @@ export function EvaluationCard({
   // and we don't need to force them to answer anymore.
   // submitted means we successfully sent answers to backend just now.
   const isPreviouslyAnswered =
-    normalizedQuestions.length > 0 && normalizedQuestions.every((q) => !!q.answer);
+    normalizedQuestions.length > 0 && normalizedQuestions.every((q) => !!getResolvedAnswer(q));
   const isTaskClosed = taskStatus === "completed" || taskStatus === "cancelled";
   const isReadOnly = forceReadOnly || submitted || isPreviouslyAnswered || isTaskClosed;
 
@@ -299,9 +306,9 @@ export function EvaluationCard({
                     <span className="mr-2 text-stone-400 font-bold">{idx + 1}.</span>
                     {q.text}
                   </p>
-                  {q.answer ? (
+                  {getResolvedAnswer(q) ? (
                     <div className="pl-6 border-l-2 border-stone-200 mt-2">
-                      <p className="text-sm text-blue-700 font-semibold">{q.answer}</p>
+                      <p className="text-sm text-blue-700 font-semibold">{getResolvedAnswer(q)}</p>
                     </div>
                   ) : (
                     <div className="pl-6 mt-1">
