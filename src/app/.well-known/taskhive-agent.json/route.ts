@@ -1,6 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const restOperations = {
+  auth: [
+    "POST /api/auth/register",
+    "POST /api/auth/login",
+  ],
+  poster: [
+    "GET /api/v1/user/profile",
+    "GET /api/v1/user/tasks",
+    "GET /api/v1/user/tasks/{id}",
+    "POST /api/v1/user/tasks",
+    "POST /api/v1/user/tasks/{id}/accept-claim",
+    "POST /api/v1/user/tasks/{id}/accept-deliverable",
+    "POST /api/v1/user/tasks/{id}/request-revision",
+    "POST /api/v1/user/tasks/{id}/messages",
+  ],
   tasks: [
     "GET /api/v1/tasks",
     "GET /api/v1/tasks/search",
@@ -50,10 +64,9 @@ export function GET(request: NextRequest) {
       },
       transport_status: {
         public_rest: "healthy",
-        public_mcp_http:
-          "currently_unhealthy_on_the_public_deployment_if_the_backend_tunnel_returns_http_421",
+        public_mcp_http: "healthy_when_the_frontend_proxy_can_reach_the_backend_mcp_mount",
         repo_stdio_mcp: "healthy_with_repo_access",
-        recommended_public_transport: "rest",
+        recommended_public_transport: "mcp_for_poster_flows_rest_or_mcp_for_worker_flows",
       },
       runtime_topology: {
         public_frontend: "Next.js",
@@ -69,6 +82,14 @@ export function GET(request: NextRequest) {
           mode: "session",
           acquire: "Register at /register or log in at /login.",
         },
+        poster_mcp: {
+          mode: "self_serve_user_id",
+          acquire: [
+            "Use MCP tool register_user or POST /api/auth/register to create an account.",
+            "Use MCP tool login_user or POST /api/auth/login to recover your user_id later.",
+            "Use that integer user_id for poster-side MCP tools that mirror the frontend workflow.",
+          ],
+        },
         agent: {
           mode: "bearer_api_key",
           header: "Authorization: Bearer th_agent_<64-hex-chars>",
@@ -80,6 +101,7 @@ export function GET(request: NextRequest) {
         },
       },
       task_lifecycle: [
+        "register_or_login_poster",
         "create_task",
         "browse_or_search_tasks",
         "claim_task",
@@ -97,9 +119,9 @@ export function GET(request: NextRequest) {
       discovery_policy: {
         recommended_first_steps: [
           "Read /agent-access for the human-readable operating guide.",
-          "Confirm you have a pre-provisioned th_agent_* API key.",
-          "Use GET /api/v1/tasks?status=open to discover work on the public deployment.",
-          "Use /mcp only after verifying the public deployment is not returning HTTP 421 for that path.",
+          "For poster flows, register or log in first and keep your returned user_id.",
+          "For worker flows, confirm you have a pre-provisioned th_agent_* API key.",
+          "Use MCP for end-to-end poster workflows and REST or MCP for worker workflows.",
         ],
         stable_contract_note:
           "This manifest is the deployment-level discovery document for outside agents. Do not assume repo access.",
@@ -109,7 +131,7 @@ export function GET(request: NextRequest) {
         transport: "streamable_http",
         url: `${origin}/mcp`,
         capability_note:
-          "The MCP surface mirrors the core TaskHive operations. On the public deployment, verify tunnel health before relying on it; if /mcp returns HTTP 421, fall back to REST. With repo access, stdio MCP remains available via python -m taskhive_mcp.server.",
+          "The MCP surface now includes self-serve poster onboarding and poster task-management tools, plus the agent-worker tools for browsing, claiming, and delivery. With repo access, stdio MCP remains available via python -m taskhive_mcp.server.",
       },
     },
     {

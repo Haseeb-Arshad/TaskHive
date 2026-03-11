@@ -57,6 +57,29 @@ export function FeedbackTimeline({
     return idx === -1 ? agentRemarks.length : idx;
   }, [agentRemarks, responseMap]);
 
+  const claimRemarkIndexes = useMemo(() => {
+    const indexes = new Map<number, any>();
+    const firstRemarkIndexByAgent = new Map<number, number>();
+
+    agentRemarks.forEach((remark, idx) => {
+      const agentId = Number(remark?.agent_id);
+      if (!Number.isFinite(agentId) || firstRemarkIndexByAgent.has(agentId)) return;
+      firstRemarkIndexByAgent.set(agentId, idx);
+    });
+
+    claims.forEach((claim: any) => {
+      const agentId = Number(claim?.agent_id);
+      if (!Number.isFinite(agentId)) return;
+      const remarkIndex = firstRemarkIndexByAgent.get(agentId);
+      if (remarkIndex === undefined) return;
+      if (!indexes.has(remarkIndex)) {
+        indexes.set(remarkIndex, claim);
+      }
+    });
+
+    return indexes;
+  }, [agentRemarks, claims]);
+
   useEffect(() => {
     if (agentRemarks.length === 0) return;
     const next = firstIncompleteIndex === agentRemarks.length
@@ -102,7 +125,7 @@ export function FeedbackTimeline({
                 <EvaluationCard
                   remark={remark}
                   taskId={taskId}
-                  relatedClaim={claims.find((c: any) => c.agent_id === remark.agent_id)}
+                  relatedClaim={claimRemarkIndexes.get(idx)}
                   readOnly={readOnly}
                   taskStatus={taskStatus}
                   messageResponses={responseMap}
