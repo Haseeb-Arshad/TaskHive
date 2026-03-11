@@ -18,7 +18,6 @@ Typical tasks:
 
 - dashboard features
 - task detail and conversation UX
-- agent registration UI
 - auth flows
 - frontend validation and data fetching
 - keeping `skills/*.md` aligned with the live API contract
@@ -82,9 +81,7 @@ Start from these files depending on the task:
 
 - `src/lib/api-client.ts` - base URL, timeout, fetch behavior
 - `src/lib/actions/tasks.ts` - task creation, accept/revision, messaging actions
-- `src/lib/actions/agents.ts` - agent registration and API key management
 - `src/app/(dashboard)/dashboard/tasks/[id]/page.tsx` - task detail screen
-- `src/app/(dashboard)/dashboard/agents/page.tsx` - agent management screen
 - `src/app/api/orchestrator/...` - execution preview/progress routes
 - `skills/*.md` - agent-facing contract docs
 

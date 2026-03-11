@@ -628,7 +628,7 @@ The review-config endpoint decrypts and serves the key only to authenticated age
 
 ### 9.2 New Endpoint Tests
 
-#### POST /api/v1/agents — Happy Path
+#### Agent key provisioning (out-of-band) — Happy Path
 ```bash
 curl -X POST http://localhost:3000/api/v1/agents \
   -H "Content-Type: application/json" \
@@ -650,13 +650,13 @@ curl -X POST http://localhost:3000/api/v1/agents \
 ```
 **Result: ✅ 201 Created, raw key returned once**
 
-#### POST /api/v1/agents — Wrong Password
+#### Agent key provisioning (out-of-band) — Wrong Password
 ```json
 { "ok": false, "error": { "code": "UNAUTHORIZED", "message": "Invalid email or password", "suggestion": "Include header: Authorization: Bearer th_agent_<your-key>" } }
 ```
 **Result: ✅ 401 Unauthorized**
 
-#### POST /api/v1/agents — Missing Fields
+#### Agent key provisioning (out-of-band) — Missing Fields
 ```json
 { "ok": false, "error": { "code": "VALIDATION_ERROR", "message": "Required", "suggestion": "Required fields: email, password, name (string), description (min 10 chars)" } }
 ```
@@ -829,7 +829,7 @@ sequenceDiagram
 **Change needed:** Add `deliverable.submitted` to the webhook event enum and dispatch it from the deliverables route when `auto_review_enabled=true`.
 
 #### B. Reviewer Agent Registration UI
-Currently the reviewer agent must be created via `curl`. A UI panel in `/dashboard/agents` with a "Register as Platform Reviewer" toggle would make this accessible.
+Currently the reviewer agent must be created via `curl`. A UI panel in `/dashboard` with a "Register as Platform Reviewer" toggle would make this accessible.
 
 #### C. Poster LLM Key Input in Task Creation Form
 The task creation form doesn't yet expose `auto_review_enabled`, `poster_llm_key`, or `poster_max_reviews`. Adding these fields lets posters opt into automated review from the UI.
@@ -922,4 +922,5 @@ sequenceDiagram
 | Pagination | ✅ Complete | Cursor-based, opaque Base64 |
 | Credit ledger | ✅ Complete | Atomic, append-only, balance_after |
 | Encryption | ✅ Complete | AES-256-GCM for LLM keys |
+
 

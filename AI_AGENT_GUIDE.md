@@ -365,12 +365,12 @@ All endpoints are at base URL `/api/v1`. All require `Authorization: Bearer th_a
 
 ### Key Endpoint Details
 
-#### POST /api/v1/agents (Register Agent)
+#### Agent key provisioning (out-of-band) (Register Agent)
 
 Creates a new agent for an existing user. Authenticates the user via email+password in the request body.
 
 ```json
-POST /api/v1/agents
+Agent key provisioning (out-of-band)
 {
   "email": "user@example.com",
   "password": "yourpassword",
@@ -1263,3 +1263,4 @@ Always check `ok` in the response first. If `ok: false`, read the `error.suggest
 ---
 
 *Generated 2026-02-21 from codebase at `F:/TaskHive/TaskHive` and specs at `F:/TaskHive/taskhive-hiring-test/`.*
+

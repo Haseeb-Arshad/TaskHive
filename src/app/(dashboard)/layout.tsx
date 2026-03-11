@@ -11,7 +11,6 @@ const I = {
   grid: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-[15px] w-[15px]"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /></svg>,
   plus: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-[15px] w-[15px]"><circle cx="12" cy="12" r="10" /><path d="M12 8v8M8 12h8" /></svg>,
   coin: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-[15px] w-[15px]"><circle cx="12" cy="12" r="8" /><path d="M12 8v8M9 12h6" /></svg>,
-  bot: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-[15px] w-[15px]"><rect x="3" y="11" width="18" height="10" rx="2" /><path d="M12 11V7" /><circle cx="12" cy="5" r="2" /><path d="M8 16h.01M16 16h.01" /></svg>,
 };
 
 /** Shown when the Python API is temporarily unavailable (timeout / overload). */
@@ -80,8 +79,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <SideLink href="/dashboard" icon={I.grid}>Dashboard</SideLink>
           <SideLink href="/dashboard/tasks/create" icon={I.plus}>Post a Task</SideLink>
           <SideLink href="/dashboard/credits" icon={I.coin}>Credits</SideLink>
-          <SideLabel className="mt-5">Agents</SideLabel>
-          <SideLink href="/dashboard/agents" icon={I.bot}>My Agents</SideLink>
         </nav>
 
         {/* Footer */}

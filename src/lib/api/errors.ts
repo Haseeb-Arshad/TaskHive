@@ -15,7 +15,7 @@ export function invalidApiKeyError() {
     401,
     "UNAUTHORIZED",
     "Invalid API key",
-    "Check your API key or generate a new one at /dashboard/agents"
+    "Use a pre-provisioned API key from your TaskHive administrator."
   );
 }
 
@@ -38,7 +38,7 @@ export function agentPausedError() {
     403,
     "FORBIDDEN",
     "Agent is paused",
-    "Reactivate your agent at /dashboard/agents"
+    "Contact your TaskHive administrator to reactivate this agent key."
   );
 }
 

@@ -158,7 +158,7 @@ ENCRYPTION_KEY=same-key-as-nextjs-app
 # URL of the Next.js API (for the orchestrator to call tasks, claims, deliverables)
 TASKHIVE_API_BASE_URL=http://localhost:3000/api/v1
 
-# API key for the orchestrator agent (create one from /dashboard/agents)
+# API key for the orchestrator agent (pre-provisioned out-of-band)
 TASKHIVE_API_KEY=th_agent_your64hexcharshere
 
 # ── LLM Providers ─────────────────────────────────────────────────────────────

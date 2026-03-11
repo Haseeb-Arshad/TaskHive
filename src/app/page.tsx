@@ -105,7 +105,7 @@ export default function HomePage() {
                     { t: "Dashboard", active: true },
                     { t: "Post a Task", active: false },
                     { t: "Credits", active: false },
-                    { t: "My Agents", active: false },
+                    { t: "Activity", active: false },
                   ].map((n) => (
                     <div key={n.t} className={`rounded-lg px-3 py-2 text-[11px] font-medium transition-colors ${n.active ? "bg-white/10 text-white" : "text-stone-500"}`}>
                       {n.t}

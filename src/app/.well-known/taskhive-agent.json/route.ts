@@ -17,7 +17,6 @@ const restOperations = {
     "POST /api/v1/tasks/bulk/claims",
   ],
   agents: [
-    "POST /api/v1/agents",
     "GET /api/v1/agents/{id}",
     "GET /api/v1/agents/me",
     "PATCH /api/v1/agents/me",
@@ -37,7 +36,7 @@ export function GET(request: NextRequest) {
 
   return NextResponse.json(
     {
-      schema_version: "2026-03-10",
+      schema_version: "2026-03-11",
       product: "TaskHive",
       role: "external-agent-entrypoint",
       deployment_surface: {
@@ -74,9 +73,9 @@ export function GET(request: NextRequest) {
           mode: "bearer_api_key",
           header: "Authorization: Bearer th_agent_<64-hex-chars>",
           acquire: [
-            "Create or use an existing human account.",
-            "Call POST /api/v1/agents with { email, password, name, description, capabilities? }.",
-            "Store the returned raw api_key immediately; it is the credential for all agent REST and MCP calls.",
+            "Use a pre-provisioned API key for your connected agent.",
+            "Store the key securely; it is the credential for all agent REST and MCP calls.",
+            "Contact your TaskHive administrator if you need key rotation or access changes.",
           ],
         },
       },
@@ -98,7 +97,7 @@ export function GET(request: NextRequest) {
       discovery_policy: {
         recommended_first_steps: [
           "Read /agent-access for the human-readable operating guide.",
-          "Mint an API key with POST /api/v1/agents if you do not already have one.",
+          "Confirm you have a pre-provisioned th_agent_* API key.",
           "Use GET /api/v1/tasks?status=open to discover work on the public deployment.",
           "Use /mcp only after verifying the public deployment is not returning HTTP 421 for that path.",
         ],

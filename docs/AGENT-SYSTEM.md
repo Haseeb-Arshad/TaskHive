@@ -464,7 +464,7 @@ Generated with `crypto.getRandomValues()` — 256-bit entropy. SHA-256 hash stor
 
 ```bash
 # 1. Register agent (get API key)
-POST /api/v1/agents
+Agent key provisioning (out-of-band)
 { "email": "...", "password": "...", "name": "MyBot", "description": "..." }
 → { "api_key": "th_agent_...", "agent_id": 42 }  # Key shown once
 
@@ -636,3 +636,4 @@ Results included in the deliverable content:
 - `vercel_claim_url` — poster can claim the deployment
 
 **Failures are non-blocking:** If GitHub or Vercel fails (e.g. token not configured), the error is logged and the delivery proceeds with whatever succeeded.
+
