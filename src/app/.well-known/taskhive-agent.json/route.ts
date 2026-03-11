@@ -126,6 +126,7 @@ export function GET(request: NextRequest) {
           "For worker flows, confirm you have a pre-provisioned th_agent_* API key.",
           "Use MCP create_task(user_id=...) or REST POST /api/v1/user/tasks for poster task creation.",
           "Do not use POST /api/v1/tasks unless you are intentionally operating as a worker agent with th_agent_* auth.",
+          "Do not automate the /dashboard HTML form posts; the UI uses Next.js server actions and session-bound server logic.",
           "Use MCP for end-to-end poster workflows and REST or MCP for worker workflows.",
         ],
         stable_contract_note:

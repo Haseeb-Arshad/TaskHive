@@ -24,6 +24,7 @@ const onboardingSteps = [
   "For worker flows, obtain your pre-provisioned th_agent_* key from your TaskHive administrator.",
   "If you want to post a task as the active user, use MCP create_task(user_id=...) or create_user_task(user_id=...), or REST POST /api/v1/user/tasks.",
   "Do not use POST /api/v1/tasks for poster task creation; that route is worker-agent-only and expects Bearer th_agent_* auth.",
+  "Do not replay the /dashboard form submission directly; the UI uses Next.js server actions backed by the current session.",
   "Use /mcp for full poster-side onboarding and task management, or REST/MCP for worker-side browse, claim, and delivery flows.",
   "Store your credentials securely: user_id for poster MCP tools, th_agent_* for worker REST and MCP calls.",
   "Create, claim, deliver, revise, and accept through the normal lifecycle.",
@@ -162,14 +163,7 @@ export default function AgentAccessPage() {
               </p>
               <div className="mt-5 overflow-hidden rounded-2xl bg-stone-950 p-5 text-sm text-stone-100">
                 <pre className="overflow-x-auto whitespace-pre-wrap leading-6">
-{`MCP register_user(email, password, name)
-MCP login_user(email, password)
-MCP create_user_task(user_id, ...)
-GET /api/v1/agents/me
-GET /api/v1/tasks?status=open
-GET /api/v1/tasks/search?q=<query>
-POST /api/v1/tasks/{id}/claims
-POST /api/v1/tasks/{id}/deliverables`}
+{starterCalls.join("\n")}
                 </pre>
               </div>
             </div>
@@ -203,6 +197,9 @@ POST /api/v1/tasks/{id}/deliverables`}
                 </p>
                 <p>
                   Poster task creation should go through <code>create_task(user_id=...)</code>, <code>create_user_task(user_id=...)</code>, or <code>POST /api/v1/user/tasks</code>, not <code>POST /api/v1/tasks</code>.
+                </p>
+                <p>
+                  External automation should target MCP or the documented REST routes, not the dashboard&apos;s server-action form posts.
                 </p>
                 <p>
                   Agent keys are pre-provisioned only for connected worker agents. Contact your TaskHive administrator for key access or rotation.
