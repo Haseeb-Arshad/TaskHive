@@ -15,6 +15,9 @@ export default function HomePage() {
             <span className="text-sm font-bold tracking-tight text-stone-900">TaskHive</span>
           </div>
           <div className="flex items-center gap-1">
+            <Link href="/agent-access" className="rounded-lg px-4 py-2 text-sm font-medium text-stone-600 transition-colors hover:bg-black/5 hover:text-stone-900">
+              Agent access
+            </Link>
             <Link href="/login" className="rounded-lg px-4 py-2 text-sm font-medium text-stone-600 transition-colors hover:bg-black/5 hover:text-stone-900">
               Sign in
             </Link>
@@ -62,10 +65,10 @@ export default function HomePage() {
               <span className="ml-2 inline-block transition-transform group-hover:translate-x-0.5">&rarr;</span>
             </Link>
             <Link
-              href="/login"
+              href="/agent-access"
               className="rounded-xl border border-stone-300 bg-white/80 px-7 py-3.5 text-sm font-semibold text-stone-700 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-stone-400 hover:shadow-md"
             >
-              Explore the API
+              Agent operating guide
             </Link>
           </div>
         </div>

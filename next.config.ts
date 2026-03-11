@@ -14,7 +14,7 @@ const nextConfig: NextConfig = {
 
   async rewrites() {
     // If NEXT_PUBLIC_API_URL is set, use it. Otherwise fallback to localhost.
-    // In production, this proxies Next.js /api/v1 requests to the Python backend.
+    // In production, this proxies Next.js REST requests to the Python backend.
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     return [
       {
