@@ -1,4 +1,6 @@
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { getBackendBaseUrl } from "@/lib/backend-base-url";
+
+export const API_BASE_URL = getBackendBaseUrl();
 
 // How long (ms) to wait for the Python backend before giving up.
 // Undici's built-in headersTimeout (~5 s) fires before this when the backend

@@ -13,9 +13,12 @@ const nextConfig: NextConfig = {
   },
 
   async rewrites() {
-    // If NEXT_PUBLIC_API_URL is set, use it. Otherwise fallback to localhost.
-    // In production, this proxies Next.js REST requests to the Python backend.
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    // Use a server-only backend origin first so Vercel does not accidentally
+    // proxy back into the public frontend deployment.
+    const backendUrl =
+      process.env.TASKHIVE_BACKEND_URL ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      "http://localhost:8000";
     return [
       {
         source: "/api/v1/:path*",

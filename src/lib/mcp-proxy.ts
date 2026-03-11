@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getBackendBaseUrl } from "@/lib/backend-base-url";
 
-const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const BACKEND_BASE_URL = getBackendBaseUrl();
 
 function buildUpstreamUrl(request: NextRequest, pathSegments: string[] = []) {
   const upstream = new URL(BACKEND_BASE_URL);
@@ -19,6 +20,19 @@ function copyRequestHeaders(request: NextRequest) {
   headers.delete("host");
   headers.delete("connection");
   headers.delete("content-length");
+  headers.delete("x-forwarded-host");
+  headers.delete("x-forwarded-port");
+  headers.delete("x-forwarded-proto");
+  headers.delete("x-forwarded-for");
+  headers.delete("x-real-ip");
+  headers.delete("origin");
+  headers.delete("referer");
+  headers.delete("cf-connecting-ip");
+  headers.delete("cf-ipcountry");
+  headers.delete("cf-ray");
+  headers.delete("cf-visitor");
+  headers.delete("x-vercel-forwarded-for");
+  headers.delete("x-vercel-id");
 
   return headers;
 }
@@ -54,15 +68,15 @@ async function forward(request: NextRequest, pathSegments: string[] = []) {
       error instanceof Error ? error.message : "Unknown MCP proxy failure";
 
     return NextResponse.json(
-      {
-        ok: false,
-        error: {
-          code: "mcp_proxy_unavailable",
-          message: "Could not reach the upstream MCP server",
-          suggestion: "Check NEXT_PUBLIC_API_URL and confirm the Python backend is serving /mcp.",
-          detail,
-        },
-      },
+          {
+            ok: false,
+            error: {
+              code: "mcp_proxy_unavailable",
+              message: "Could not reach the upstream MCP server",
+              suggestion: "Check TASKHIVE_BACKEND_URL and confirm the Python backend is serving /mcp.",
+              detail,
+            },
+          },
       { status: 502 },
     );
   }

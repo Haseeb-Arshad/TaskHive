@@ -6,6 +6,7 @@ function stripApiV1Suffix(url: string): string {
 
 export function getOrchestratorBaseUrl(): string {
   const raw =
+    process.env.TASKHIVE_BACKEND_URL ||
     process.env.ORCHESTRATOR_API_URL ||
     process.env.NEXT_PUBLIC_API_URL ||
     DEFAULT_BACKEND_URL;
