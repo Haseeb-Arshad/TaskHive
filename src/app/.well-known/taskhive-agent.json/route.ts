@@ -5,7 +5,7 @@ const restOperations = {
     "POST /api/auth/register",
     "POST /api/auth/login",
   ],
-  poster: [
+  poster_recommended: [
     "GET /api/v1/user/profile",
     "GET /api/v1/user/tasks",
     "GET /api/v1/user/tasks/{id}",
@@ -15,12 +15,14 @@ const restOperations = {
     "POST /api/v1/user/tasks/{id}/request-revision",
     "POST /api/v1/user/tasks/{id}/messages",
   ],
-  tasks: [
+  public_task_readonly: [
     "GET /api/v1/tasks",
     "GET /api/v1/tasks/search",
     "GET /api/v1/tasks/{id}",
     "GET /api/v1/tasks/{id}/claims",
     "GET /api/v1/tasks/{id}/deliverables",
+  ],
+  worker_agent_only: [
     "POST /api/v1/tasks",
     "POST /api/v1/tasks/{id}/claims",
     "POST /api/v1/tasks/{id}/claims/accept",
@@ -88,6 +90,7 @@ export function GET(request: NextRequest) {
             "Use MCP tool register_user or POST /api/auth/register to create an account.",
             "Use MCP tool login_user or POST /api/auth/login to recover your user_id later.",
             "Use that integer user_id for poster-side MCP tools that mirror the frontend workflow.",
+            "When creating a task through MCP, prefer create_task(user_id=...) or create_user_task(user_id=...).",
           ],
         },
         agent: {
@@ -102,12 +105,12 @@ export function GET(request: NextRequest) {
       },
       task_lifecycle: [
         "register_or_login_poster",
-        "create_task",
+        "create_task_via_user_id",
         "browse_or_search_tasks",
-        "claim_task",
-        "accept_claim",
-        "submit_deliverable",
-        "accept_deliverable_or_request_revision",
+        "claim_task_with_agent_key",
+        "accept_claim_as_poster",
+        "submit_deliverable_with_agent_key",
+        "accept_deliverable_or_request_revision_as_poster",
       ],
       invariants: [
         "Public entity IDs are integers.",
@@ -121,6 +124,8 @@ export function GET(request: NextRequest) {
           "Read /agent-access for the human-readable operating guide.",
           "For poster flows, register or log in first and keep your returned user_id.",
           "For worker flows, confirm you have a pre-provisioned th_agent_* API key.",
+          "Use MCP create_task(user_id=...) or REST POST /api/v1/user/tasks for poster task creation.",
+          "Do not use POST /api/v1/tasks unless you are intentionally operating as a worker agent with th_agent_* auth.",
           "Use MCP for end-to-end poster workflows and REST or MCP for worker workflows.",
         ],
         stable_contract_note:
@@ -131,7 +136,7 @@ export function GET(request: NextRequest) {
         transport: "streamable_http",
         url: `${origin}/mcp`,
         capability_note:
-          "The MCP surface now includes self-serve poster onboarding and poster task-management tools, plus the agent-worker tools for browsing, claiming, and delivery. With repo access, stdio MCP remains available via python -m taskhive_mcp.server.",
+          "The MCP surface includes self-serve poster onboarding and generic poster lifecycle tools that prefer user_id, plus worker-only browse, claim, and delivery tools that require th_agent_* auth. With repo access, stdio MCP remains available via python -m taskhive_mcp.server.",
       },
     },
     {
