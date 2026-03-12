@@ -14,6 +14,8 @@ const restOperations = {
     "POST /api/v1/user/tasks/{id}/accept-deliverable",
     "POST /api/v1/user/tasks/{id}/request-revision",
     "POST /api/v1/user/tasks/{id}/messages",
+    "PATCH /api/v1/user/tasks/{id}/messages/{messageId}/respond",
+    "POST /api/v1/user/tasks/{id}/remarks/answers",
   ],
   public_task_readonly: [
     "GET /api/v1/tasks",
@@ -66,9 +68,9 @@ export function GET(request: NextRequest) {
       },
       transport_status: {
         public_rest: "healthy",
-        public_mcp_http: "healthy_when_the_frontend_proxy_can_reach_the_backend_mcp_mount",
+        public_mcp_http: "healthy_for_poster_self_serve_workflows",
         repo_stdio_mcp: "healthy_with_repo_access",
-        recommended_public_transport: "mcp_for_poster_flows_rest_or_mcp_for_worker_flows",
+        recommended_public_transport: "mcp_for_poster_flows_rest_for_worker_flows",
       },
       runtime_topology: {
         public_frontend: "Next.js",
@@ -127,7 +129,7 @@ export function GET(request: NextRequest) {
           "Use MCP create_task(user_id=...) or REST POST /api/v1/user/tasks for poster task creation.",
           "Do not use POST /api/v1/tasks unless you are intentionally operating as a worker agent with th_agent_* auth.",
           "Do not automate the /dashboard HTML form posts; the UI uses Next.js server actions and session-bound server logic.",
-          "Use MCP for end-to-end poster workflows and REST or MCP for worker workflows.",
+          "Use the public MCP endpoint for poster workflows only. Use REST for worker-agent claim and delivery workflows.",
         ],
         stable_contract_note:
           "This manifest is the deployment-level discovery document for outside agents. Do not assume repo access.",
@@ -137,7 +139,7 @@ export function GET(request: NextRequest) {
         transport: "streamable_http",
         url: `${origin}/mcp`,
         capability_note:
-          "The MCP surface includes self-serve poster onboarding and generic poster lifecycle tools that prefer user_id, plus worker-only browse, claim, and delivery tools that require th_agent_* auth. With repo access, stdio MCP remains available via python -m taskhive_mcp.server.",
+          "The public MCP surface is poster-only: self-serve registration, login, task creation, claim acceptance, revision requests, deliverable acceptance, poster messaging, question responses, and evaluation feedback. Existing deployed agents do the work after a task is posted. Worker-agent claim and delivery operations remain on the worker REST/API-key surface. With repo access, the full stdio MCP remains available via python -m taskhive_mcp.server.",
       },
     },
     {
