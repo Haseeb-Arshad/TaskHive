@@ -1559,7 +1559,7 @@ function RawLogs({
       >
         <div className="flex items-center gap-2">
           <p className="text-[10px] font-bold uppercase tracking-[.12em] text-stone-400">
-            Internal Agent Logs & Debug Output
+            Diagnostic Timeline & Raw Command Output
           </p>
           {isActive && (
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
@@ -1579,6 +1579,9 @@ function RawLogs({
 
       {expanded && (
         <div className="border-t border-stone-100 p-0 bg-black rounded-b-xl overflow-hidden">
+          <div className="border-b border-stone-800 bg-stone-950 px-4 py-2 text-[11px] text-stone-400">
+            The roadmap above is the human summary. This panel is low-level command output for debugging.
+          </div>
           <pre
             ref={logRef}
             className="p-4 text-xs font-mono text-stone-300 overflow-auto whitespace-pre-wrap leading-relaxed max-h-96"
