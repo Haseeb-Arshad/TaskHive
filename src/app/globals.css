@@ -69,6 +69,39 @@
   50%  { stroke-dashoffset: 40 }
   100% { stroke-dashoffset: 150 }
 }
+@keyframes orbit-drift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1) }
+  50% { transform: translate3d(14px, -16px, 0) scale(1.06) }
+}
+@keyframes orbit-drift-reverse {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1) }
+  50% { transform: translate3d(-16px, 12px, 0) scale(0.96) }
+}
+@keyframes beacon-ping {
+  0% { transform: scale(0.7); opacity: 0.45 }
+  80%, 100% { transform: scale(2.3); opacity: 0 }
+}
+@keyframes beacon-pulse {
+  0%, 100% { transform: scale(1); opacity: 1 }
+  50% { transform: scale(1.12); opacity: 0.72 }
+}
+@keyframes soft-shimmer {
+  0% { transform: translateX(-140%); opacity: 0 }
+  20% { opacity: 0.2 }
+  60% { opacity: 0.35 }
+  100% { transform: translateX(140%); opacity: 0 }
+}
+@keyframes outline-breathe {
+  0%, 100% { opacity: 0.35; transform: scale(1) }
+  50% { opacity: 0.9; transform: scale(1.04) }
+}
+@keyframes loader-sweep {
+  0%, 100% { transform: translateX(0%); opacity: 1 }
+  50% { transform: translateX(22%); opacity: 0.76 }
+}
+@keyframes route-flow {
+  to { stroke-dashoffset: -40 }
+}
 
 /* ─── Animation Utilities ───────────────────────────────── */
 .a-fade { animation: fade-in  0.3s ease both }
@@ -86,6 +119,18 @@
 .a-text-crossfade { animation: text-crossfade 0.5s ease both }
 .a-ring-rotate { animation: ring-rotate 3s linear infinite }
 .a-ring-dash { animation: ring-dash 2.5s ease-in-out infinite }
+.a-orbit-drift { animation: orbit-drift 12s ease-in-out infinite; will-change: transform }
+.a-orbit-drift-reverse { animation: orbit-drift-reverse 14s ease-in-out infinite; will-change: transform }
+.a-beacon-ping { animation: beacon-ping 1.8s ease-out infinite }
+.a-beacon-pulse { animation: beacon-pulse 1.8s ease-in-out infinite }
+.a-outline-breathe { animation: outline-breathe 1.8s ease-in-out infinite }
+.a-loader-sweep { animation: loader-sweep 1.8s cubic-bezier(.16,1,.3,1) infinite; will-change: transform }
+.a-route-flow { animation: route-flow 3.4s linear infinite; will-change: stroke-dashoffset }
+.a-soft-shimmer {
+  background: linear-gradient(110deg, transparent 0%, rgba(229,72,77,.08) 35%, rgba(255,255,255,.6) 50%, rgba(16,185,129,.08) 70%, transparent 100%);
+  animation: soft-shimmer 2.8s linear infinite;
+  will-change: transform, opacity;
+}
 
 .d1 { animation-delay: .08s }
 .d2 { animation-delay: .16s }
