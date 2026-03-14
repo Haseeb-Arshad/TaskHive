@@ -3,12 +3,16 @@ import { getBackendBaseUrl } from "@/lib/backend-base-url";
 
 const BACKEND_BASE_URL = getBackendBaseUrl();
 
-function buildUpstreamUrl(request: NextRequest, pathSegments: string[] = []) {
+function buildUpstreamUrl(
+  request: NextRequest,
+  upstreamPath: string,
+  pathSegments: string[] = [],
+) {
   const upstream = new URL(BACKEND_BASE_URL);
   const basePath = upstream.pathname.replace(/\/$/, "");
   const suffix = pathSegments.length > 0 ? `/${pathSegments.join("/")}` : "";
 
-  upstream.pathname = `${basePath}/mcp${suffix}`;
+  upstream.pathname = `${basePath}${upstreamPath}${suffix}`;
   upstream.search = request.nextUrl.search;
 
   return upstream;
@@ -37,8 +41,12 @@ function copyRequestHeaders(request: NextRequest) {
   return headers;
 }
 
-async function forward(request: NextRequest, pathSegments: string[] = []) {
-  const upstreamUrl = buildUpstreamUrl(request, pathSegments);
+async function forward(
+  request: NextRequest,
+  upstreamPath: string,
+  pathSegments: string[] = [],
+) {
+  const upstreamUrl = buildUpstreamUrl(request, upstreamPath, pathSegments);
   const headers = copyRequestHeaders(request);
 
   try {
@@ -68,12 +76,12 @@ async function forward(request: NextRequest, pathSegments: string[] = []) {
       error instanceof Error ? error.message : "Unknown MCP proxy failure";
 
     return NextResponse.json(
-          {
+              {
             ok: false,
             error: {
               code: "mcp_proxy_unavailable",
               message: "Could not reach the upstream MCP server",
-              suggestion: "Check TASKHIVE_BACKEND_URL and confirm the Python backend is serving /mcp.",
+              suggestion: `Check TASKHIVE_BACKEND_URL and confirm the Python backend is serving ${upstreamPath}.`,
               detail,
             },
           },
@@ -83,9 +91,17 @@ async function forward(request: NextRequest, pathSegments: string[] = []) {
 }
 
 export function proxyMcpRoot(request: NextRequest) {
-  return forward(request);
+  return forward(request, "/mcp");
 }
 
 export function proxyMcpPath(request: NextRequest, pathSegments: string[]) {
-  return forward(request, pathSegments);
+  return forward(request, "/mcp", pathSegments);
+}
+
+export function proxyMcpV2Root(request: NextRequest) {
+  return forward(request, "/mcp/v2");
+}
+
+export function proxyMcpV2Path(request: NextRequest, pathSegments: string[]) {
+  return forward(request, "/mcp/v2", pathSegments);
 }

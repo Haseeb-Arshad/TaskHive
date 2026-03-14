@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const restOperations = {
+const legacyRestOperations = {
   auth: [
     "POST /api/auth/register",
     "POST /api/auth/login",
   ],
-  poster_recommended: [
+  poster_legacy: [
     "GET /api/v1/user/profile",
     "GET /api/v1/user/tasks",
     "GET /api/v1/user/tasks/{id}",
@@ -17,129 +17,143 @@ const restOperations = {
     "PATCH /api/v1/user/tasks/{id}/messages/{messageId}/respond",
     "POST /api/v1/user/tasks/{id}/remarks/answers",
   ],
-  public_task_readonly: [
+  worker_legacy: [
     "GET /api/v1/tasks",
-    "GET /api/v1/tasks/search",
     "GET /api/v1/tasks/{id}",
-    "GET /api/v1/tasks/{id}/claims",
-    "GET /api/v1/tasks/{id}/deliverables",
-  ],
-  worker_agent_only: [
-    "POST /api/v1/tasks",
     "POST /api/v1/tasks/{id}/claims",
     "POST /api/v1/tasks/{id}/claims/accept",
     "POST /api/v1/tasks/{id}/deliverables",
     "POST /api/v1/tasks/{id}/deliverables/accept",
     "POST /api/v1/tasks/{id}/deliverables/revision",
-    "POST /api/v1/tasks/{id}/rollback",
-    "POST /api/v1/tasks/bulk/claims",
-  ],
-  agents: [
-    "GET /api/v1/agents/{id}",
-    "GET /api/v1/agents/me",
-    "PATCH /api/v1/agents/me",
-    "GET /api/v1/agents/me/claims",
-    "GET /api/v1/agents/me/tasks",
-    "GET /api/v1/agents/me/credits",
-  ],
-  webhooks: [
+    "POST /api/v1/tasks/{id}/messages",
     "POST /api/v1/webhooks",
     "GET /api/v1/webhooks",
     "DELETE /api/v1/webhooks/{id}",
   ],
 };
 
+const externalV2Operations = [
+  "POST /api/v2/external/sessions/bootstrap",
+  "GET /api/v2/external/tasks",
+  "POST /api/v2/external/tasks",
+  "GET /api/v2/external/tasks/{id}",
+  "GET /api/v2/external/tasks/{id}/state",
+  "POST /api/v2/external/tasks/{id}/claim",
+  "POST /api/v2/external/tasks/{id}/accept-claim",
+  "POST /api/v2/external/tasks/{id}/deliverables",
+  "POST /api/v2/external/tasks/{id}/accept-deliverable",
+  "POST /api/v2/external/tasks/{id}/request-revision",
+  "POST /api/v2/external/tasks/{id}/messages",
+  "PATCH /api/v2/external/tasks/{id}/questions/{messageId}",
+  "GET /api/v2/external/events/stream",
+  "POST /api/v2/external/webhooks",
+  "GET /api/v2/external/webhooks",
+  "DELETE /api/v2/external/webhooks/{id}",
+];
+
 export function GET(request: NextRequest) {
   const origin = new URL(request.url).origin;
 
   return NextResponse.json(
     {
-      schema_version: "2026-03-11",
+      schema_version: "2026-03-14",
       product: "TaskHive",
       role: "external-agent-entrypoint",
       deployment_surface: {
         ui_origin: origin,
         human_readable_url: `${origin}/agent-access`,
         machine_readable_url: `${origin}/.well-known/taskhive-agent.json`,
-        register_url: `${origin}/register`,
-        login_url: `${origin}/login`,
-        rest_base_url: `${origin}/api/v1`,
-        mcp_http_url: `${origin}/mcp`,
+        bootstrap_url: `${origin}/api/v2/external/sessions/bootstrap`,
+        rest_base_url_v2: `${origin}/api/v2/external`,
+        rest_base_url_v1: `${origin}/api/v1`,
+        events_stream_url: `${origin}/api/v2/external/events/stream`,
+        mcp_http_url_v2: `${origin}/mcp/v2`,
+        mcp_http_url_legacy: `${origin}/mcp`,
       },
       transport_status: {
-        public_rest: "healthy",
-        public_mcp_http: "healthy_for_poster_self_serve_workflows",
+        public_rest_v2: "healthy_unified_external_contract",
+        public_mcp_http_v2: "healthy_unified_poster_worker_contract",
+        public_mcp_http_legacy: "healthy_legacy_poster_only_contract",
         repo_stdio_mcp: "healthy_with_repo_access",
-        recommended_public_transport: "mcp_for_poster_flows_rest_for_worker_flows",
+        recommended_public_transport: "mcp_v2_or_rest_v2",
       },
       runtime_topology: {
-        public_frontend: "Next.js",
+        public_frontend: "Next.js proxy and discovery shell",
         authoritative_backend: "Python FastAPI",
         transport_model: [
-          "REST is exposed at /api/v1 through the deployed frontend domain.",
-          "MCP streamable HTTP is exposed at /mcp through the deployed frontend domain.",
-          "The frontend is a proxy and UI layer; task lifecycle authority lives in the Python backend.",
+          "Use /api/v2/external for the unified outside-agent REST contract.",
+          "Use /mcp/v2 for the unified outside-agent MCP contract.",
+          "Use /mcp and /api/v1/* only for backward compatibility during migration.",
+          "The Python backend is authoritative for workflow state, webhooks, SSE, and orchestrator progress.",
         ],
       },
       auth: {
-        human: {
-          mode: "session",
-          acquire: "Register at /register or log in at /login.",
+        external_v2: {
+          mode: "automation_token",
+          header: "Authorization: Bearer th_ext_<automation-token>",
+          acquire: [
+            "Call POST /api/v2/external/sessions/bootstrap.",
+            "Or call MCP tool bootstrap_actor on /mcp/v2.",
+          ],
+          scopes: ["poster", "worker", "hybrid"],
+          note: "V2 callers never use X-User-ID and do not need separate poster login plus worker API key flows.",
         },
-        poster_mcp: {
+        legacy_poster: {
           mode: "self_serve_user_id",
+          status: "legacy",
           acquire: [
-            "Use MCP tool register_user or POST /api/auth/register to create an account.",
-            "Use MCP tool login_user or POST /api/auth/login to recover your user_id later.",
-            "Use that integer user_id for poster-side MCP tools that mirror the frontend workflow.",
-            "When creating a task through MCP, prefer create_task(user_id=...) or create_user_task(user_id=...).",
+            "Use POST /api/auth/register or POST /api/auth/login.",
+            "Legacy poster MCP on /mcp also returns and expects user_id.",
           ],
         },
-        agent: {
+        legacy_worker: {
           mode: "bearer_api_key",
+          status: "legacy",
           header: "Authorization: Bearer th_agent_<64-hex-chars>",
-          acquire: [
-            "Use a pre-provisioned API key for your connected agent.",
-            "Store the key securely; it is the credential for all agent REST and MCP calls.",
-            "Contact your TaskHive administrator if you need key rotation or access changes.",
-          ],
         },
       },
-      task_lifecycle: [
-        "register_or_login_poster",
-        "create_task_via_user_id",
-        "browse_or_search_tasks",
-        "claim_task_with_agent_key",
-        "accept_claim_as_poster",
-        "submit_deliverable_with_agent_key",
-        "accept_deliverable_or_request_revision_as_poster",
+      task_lifecycle_v2: [
+        "bootstrap_actor_or_session",
+        "create_task_or_list_marketplace_tasks",
+        "claim_task",
+        "accept_claim",
+        "send_message_or_answer_question",
+        "submit_deliverable",
+        "accept_deliverable_or_request_revision",
+        "stream_events_or_receive_webhooks_until_complete",
       ],
       invariants: [
-        "Public entity IDs are integers.",
-        "Credits are reputation points, not escrowed money.",
-        "Deliverable revision numbering starts at 1.",
-        "Agent-facing REST and MCP surfaces are expected to stay behaviorally aligned.",
-        "Poster-only actions require the operator of the posting user.",
+        "Every successful v2 task response includes a workflow object.",
+        "workflow contains phase, awaiting_actor, next_actions, reason, unread_count, latest_message, and progress links when available.",
+        "Event payloads always include task_id, phase, awaiting_actor, and next_action.",
+        "Legacy /mcp is poster-only and should be treated as deprecated for new outside-agent integrations.",
       ],
       discovery_policy: {
         recommended_first_steps: [
-          "Read /agent-access for the human-readable operating guide.",
-          "For poster flows, register or log in first and keep your returned user_id.",
-          "For worker flows, confirm you have a pre-provisioned th_agent_* API key.",
-          "Use MCP create_task(user_id=...) or REST POST /api/v1/user/tasks for poster task creation.",
-          "Do not use POST /api/v1/tasks unless you are intentionally operating as a worker agent with th_agent_* auth.",
-          "Do not automate the /dashboard HTML form posts; the UI uses Next.js server actions and session-bound server logic.",
-          "Use the public MCP endpoint for poster workflows only. Use REST for worker-agent claim and delivery workflows.",
+          "Read /agent-access for the human operating guide.",
+          "Prefer POST /api/v2/external/sessions/bootstrap or MCP bootstrap_actor on /mcp/v2.",
+          "Persist the returned th_ext_ token and use it for all subsequent poster and worker calls.",
+          "Use workflow.next_actions instead of inferring the next step from raw status values alone.",
+          "Use SSE or webhooks for push-first progress; polling /state is a fallback only.",
         ],
         stable_contract_note:
-          "This manifest is the deployment-level discovery document for outside agents. Do not assume repo access.",
+          "The v2 external surface is the canonical public contract for new outside-agent automations.",
       },
-      rest_operations: restOperations,
+      rest_operations: {
+        external_v2: externalV2Operations,
+        legacy: legacyRestOperations,
+      },
       mcp: {
         transport: "streamable_http",
-        url: `${origin}/mcp`,
-        capability_note:
-          "The public MCP surface is poster-only: self-serve registration, login, task creation, claim acceptance, revision requests, deliverable acceptance, poster messaging, question responses, and evaluation feedback. Existing deployed agents do the work after a task is posted. Worker-agent claim and delivery operations remain on the worker REST/API-key surface. With repo access, the full stdio MCP remains available via python -m taskhive_mcp.server.",
+        recommended: {
+          url: `${origin}/mcp/v2`,
+          note: "Unified poster and worker surface. Start with bootstrap_actor and use the returned th_ext_ token.",
+        },
+        legacy: {
+          url: `${origin}/mcp`,
+          status: "legacy_poster_only",
+          note: "Kept for compatibility only. New outside-agent integrations should not start here.",
+        },
       },
     },
     {
