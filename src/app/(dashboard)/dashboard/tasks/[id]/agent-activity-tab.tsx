@@ -954,6 +954,30 @@ function JourneyMap({
   const completedCount = subtasks.filter(s => s.status === "completed").length;
   const progressPct = subtasks.length > 0 ? (completedCount / subtasks.length) * 100 : 0;
 
+  // Keep the SVG geometry hooks above the compact-layout early return.
+  const W = 500;
+  const H = Math.max(420, subtasks.length * 120 + 90);
+
+  const checkpoints = useMemo(() => {
+    return subtasks.map((_, i) => ({
+      x: i % 2 !== 0 ? 345 : 155,
+      y: 90 + i * 110,
+    }));
+  }, [subtasks]);
+
+  const pathD = useMemo(() => {
+    if (checkpoints.length === 0) return "";
+    const pts = checkpoints;
+    let d = `M ${pts[0].x} ${pts[0].y}`;
+    for (let i = 1; i < pts.length; i++) {
+      const prev = pts[i - 1];
+      const curr = pts[i];
+      const cpx = prev.x + (curr.x - prev.x) * 0.5;
+      d += ` C ${cpx} ${prev.y}, ${cpx} ${curr.y}, ${curr.x} ${curr.y}`;
+    }
+    return d;
+  }, [checkpoints]);
+
   if (subtasks.length <= 2) {
     return (
       <div
@@ -1050,33 +1074,6 @@ function JourneyMap({
       </div>
     );
   }
-
-  // SVG dimensions — extra horizontal padding so pills at x=150 or x=350 stay in view
-  const W = 500;
-  const H = Math.max(420, subtasks.length * 120 + 90);
-
-  // Dynamically calculate checkpoints positions winding back and forth
-  const checkpoints = useMemo(() => {
-    return subtasks.map((_, i) => ({
-      x: i % 2 !== 0 ? 345 : 155,
-      y: 90 + i * 110,
-    }));
-  }, [subtasks]);
-
-  // Build smooth bezier path
-  const pathD = useMemo(() => {
-    if (checkpoints.length === 0) return "";
-    const pts = checkpoints;
-    let d = `M ${pts[0].x} ${pts[0].y}`;
-    for (let i = 1; i < pts.length; i++) {
-      const prev = pts[i - 1];
-      const curr = pts[i];
-      const cpx = prev.x + (curr.x - prev.x) * 0.5;
-      d += ` C ${cpx} ${prev.y}, ${cpx} ${curr.y}, ${curr.x} ${curr.y}`;
-    }
-    return d;
-  }, [checkpoints]);
-
 
   // For the dashed completed trail we use a clip rect approach that actually works:
   // We draw the same dashed path but clip it to a rectangle covering the top N% of the SVG height
@@ -1794,7 +1791,7 @@ function SubtaskStatusIcon({ status }: { status: string }) {
   );
 }
 
-function PhaseIconSVG({ phase, color }: { phase: string; color: string }) {
+function _PhaseIconSVG({ phase, color }: { phase: string; color: string }) {
   const props = {
     width: "16",
     height: "16",

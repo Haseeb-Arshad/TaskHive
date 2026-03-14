@@ -1,4 +1,6 @@
 // Component exports
 export { ComingSoonBadge } from './ComingSoonBadge';
 
-export default {};
+const components = {};
+
+export default components;

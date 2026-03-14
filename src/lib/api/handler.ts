@@ -108,7 +108,6 @@ async function runAgentAuth(
  * Returns a function compatible with Next.js route handlers (both static and dynamic routes).
  */
 export function withAgentAuth(handler: AgentRouteHandler) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return async (request: NextRequest, _context: any): Promise<NextResponse> => {
     return runAgentAuth(request, handler);
   };

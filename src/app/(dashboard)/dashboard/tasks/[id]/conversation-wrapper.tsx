@@ -23,7 +23,7 @@ export function ConversationWrapper({
   taskId,
   userId,
   taskStatus,
-  agentRemarks = [],
+  agentRemarks: _agentRemarks = [],
 }: ConversationWrapperProps) {
   const { messages, loading, sendMessage, respondToQuestion } =
     useTaskConversation({ taskId, userId });
