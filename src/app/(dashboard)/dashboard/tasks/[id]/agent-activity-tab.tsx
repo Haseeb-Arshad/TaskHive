@@ -35,6 +35,138 @@ interface SubtaskData {
   files_changed: string[] | null;
 }
 
+interface ActivityEntry {
+  id: string;
+  timestampLabel: string;
+  phaseLabel: string;
+  message: string;
+  source: "internal" | "progress";
+  repeatCount: number;
+}
+
+const MAX_ACTIVITY_ENTRIES = 18;
+
+function formatActivityTimestamp(raw: string | number | null | undefined): string {
+  if (raw == null || raw === "") return "--:--:--";
+
+  if (typeof raw === "number") {
+    const date = new Date(raw > 1e12 ? raw : raw * 1000);
+    return Number.isNaN(date.getTime())
+      ? "--:--:--"
+      : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  const trimmed = raw.trim();
+  if (!trimmed) return "--:--:--";
+
+  const numeric = Number(trimmed);
+  if (Number.isFinite(numeric)) {
+    return formatActivityTimestamp(numeric);
+  }
+
+  const normalized = trimmed.includes("T") ? trimmed : trimmed.replace(" ", "T");
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime())
+    ? "--:--:--"
+    : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function collapseActivityEntries(entries: ActivityEntry[]): ActivityEntry[] {
+  const collapsed: ActivityEntry[] = [];
+
+  for (const entry of entries) {
+    const previous = collapsed[collapsed.length - 1];
+    if (
+      previous &&
+      previous.message === entry.message &&
+      previous.phaseLabel === entry.phaseLabel &&
+      previous.source === entry.source
+    ) {
+      previous.repeatCount += 1;
+      previous.timestampLabel = entry.timestampLabel;
+      previous.id = entry.id;
+      continue;
+    }
+
+    collapsed.push({ ...entry });
+  }
+
+  return collapsed;
+}
+
+function inferInternalPhase(message: string): string {
+  const normalized = message.trim().toLowerCase();
+
+  if (!normalized) return "internal";
+  if (normalized.startsWith("===") && normalized.includes("starting")) return "startup";
+  if (normalized.startsWith("step ")) return "step";
+  if (normalized.startsWith("[planning]")) return "planning";
+  if (normalized.startsWith("[execution]")) return "execution";
+  if (normalized.startsWith("[review]") || normalized.startsWith("[testing]")) return "review";
+  if (normalized.includes("writing files")) return "execution";
+  if (normalized.includes("workspace")) return "setup";
+  if (normalized.includes("complete") || normalized.includes("delivery")) return "delivery";
+  if (normalized.includes("halted") || normalized.includes("failed") || normalized.includes("error")) return "error";
+
+  return "internal";
+}
+
+function buildProgressActivityEntries(steps: ProgressStep[]): ActivityEntry[] {
+  return collapseActivityEntries(
+    steps
+      .filter((step) => step.detail || step.description)
+      .map((step, index) => ({
+        id: `progress-${step.index ?? index}`,
+        timestampLabel: formatActivityTimestamp(step.timestamp),
+        phaseLabel: step.phase || "progress",
+        message: step.detail || step.description,
+        source: "progress" as const,
+        repeatCount: 1,
+      })),
+  ).slice(-MAX_ACTIVITY_ENTRIES);
+}
+
+function parseInternalLogEntries(logs: string): ActivityEntry[] {
+  const lines = logs
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && line !== "... (truncated) ...");
+
+  if (lines.length === 0) return [];
+
+  const entries = lines.map((line, index) => {
+    let timestampLabel = "--:--:--";
+    let phaseLabel = "internal";
+    let message = line;
+
+    const timestampMatch = line.match(/^\[(\d{4}-\d{2}-\d{2}[^\]]*)\]\s*(.*)$/);
+    if (timestampMatch) {
+      timestampLabel = formatActivityTimestamp(timestampMatch[1]);
+      message = timestampMatch[2]?.trim() || line;
+      phaseLabel = inferInternalPhase(message);
+    } else {
+      const phaseMatch = line.match(/^\[([a-z_]+)\]\s*(.*)$/i);
+      if (phaseMatch) {
+        phaseLabel = phaseMatch[1].replace(/_/g, " ").trim().toLowerCase();
+        message = phaseMatch[2]?.trim() || line;
+      } else {
+        phaseLabel = inferInternalPhase(line);
+      }
+    }
+
+    return {
+      id: `internal-${index}-${message}`,
+      timestampLabel,
+      phaseLabel,
+      message,
+      source: "internal" as const,
+      repeatCount: 1,
+    };
+  });
+
+  return collapseActivityEntries(entries).slice(-MAX_ACTIVITY_ENTRIES);
+}
+
 function deriveSubtasksFromSteps(steps: ProgressStep[]): SubtaskData[] {
   if (steps.length === 0) return [];
 
@@ -252,6 +384,8 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
   const [executionId, setExecutionId] = useState<number | null>(null);
   const [execution, setExecution] = useState<ExecutionData | null>(null);
   const [subtasks, setSubtasks] = useState<SubtaskData[]>([]);
+  const [rawLogs, setRawLogs] = useState("");
+  const [rawLogsLoading, setRawLogsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [backendUnavailable, setBackendUnavailable] = useState(false);
   const [selectedPhase, setSelectedPhase] = useState<string | null>(null);
@@ -355,6 +489,60 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
   }, [taskId, taskStatus, executionId]);
 
   // ── Waiting state ──
+  useEffect(() => {
+    if (!executionId) {
+      setRawLogs("");
+      setRawLogsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function fetchLogs() {
+      if (!cancelled) {
+        setRawLogsLoading(true);
+      }
+
+      try {
+        const res = await fetch(`/api/orchestrator/tasks/${executionId}/logs`);
+        if (!res.ok) return;
+
+        const json = await res.json();
+        if (!cancelled && json?.ok) {
+          setRawLogs(typeof json.data === "string" ? json.data : "");
+        }
+      } catch {
+        // Keep the most recent successful log snapshot.
+      } finally {
+        if (!cancelled) {
+          setRawLogsLoading(false);
+        }
+      }
+    }
+
+    fetchLogs();
+
+    const shouldPoll =
+      ["claimed", "in_progress"].includes(taskStatus) &&
+      execution?.status !== "failed" &&
+      execution?.status !== "completed";
+    const interval = shouldPoll ? setInterval(fetchLogs, 5000) : null;
+
+    return () => {
+      cancelled = true;
+      if (interval) clearInterval(interval);
+    };
+  }, [executionId, execution?.status, taskStatus]);
+
+  const activityEntries = useMemo(() => {
+    const internalEntries = parseInternalLogEntries(rawLogs);
+    if (internalEntries.length > 0) {
+      return internalEntries;
+    }
+
+    return buildProgressActivityEntries(steps);
+  }, [rawLogs, steps]);
+
   if (taskStatus === "open") {
     return (
       <div className="flex flex-col items-center justify-center px-6 py-20 text-center">
@@ -576,14 +764,15 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
 
       {/* ── Activity Log ── */}
       <ActivityLog
-        steps={steps}
+        entries={activityEntries}
         isActive={isActive}
       />
 
       {/* ── Raw Terminal logs ── */}
       {executionId && (
         <RawLogs
-          executionId={executionId}
+          logs={rawLogs}
+          loading={rawLogsLoading}
           isActive={isActive}
         />
       )}
@@ -1363,22 +1552,21 @@ function SubtasksList({ subtasks }: { subtasks: SubtaskData[] }) {
    ═══════════════════════════════════════════════════════════ */
 
 function ActivityLog({
-  steps,
+  entries,
   isActive,
 }: {
-  steps: ProgressStep[];
+  entries: ActivityEntry[];
   isActive: boolean;
 }) {
   const logRef = useRef<HTMLDivElement>(null);
-  const recentActivity = steps.filter((s) => s.detail || s.description).slice(-12);
 
   useEffect(() => {
     if (logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
-  }, [steps]);
+  }, [entries]);
 
-  if (recentActivity.length === 0) return null;
+  if (entries.length === 0) return null;
 
   return (
     <div className="mt-5 rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">
@@ -1398,19 +1586,18 @@ function ActivityLog({
           ref={logRef}
           className="max-h-56 overflow-y-auto p-4 font-mono text-xs leading-relaxed"
         >
-          {recentActivity.map((step, i) => (
-            <div key={i} className="flex items-start gap-2 py-0.5">
-              <span className="shrink-0 text-stone-500">{(() => {
-                const raw = Number(step.timestamp);
-                const date = Number.isFinite(raw)
-                  ? new Date(raw > 1e12 ? raw : raw * 1000)
-                  : new Date(step.timestamp);
-                return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-              })()}</span>
+          {entries.map((entry) => (
+            <div key={entry.id} className="flex items-start gap-2 py-0.5">
+              <span className="shrink-0 text-stone-500">{entry.timestampLabel}</span>
               <span className="shrink-0 text-stone-600 select-none">$</span>
-              <span className="text-emerald-400/80">[{step.phase}]</span>
+              <span className="text-emerald-400/80">[{entry.phaseLabel}]</span>
               <span className="text-stone-300">
-                {step.detail || step.description}
+                {entry.message}
+                {entry.repeatCount > 1 ? (
+                  <span className="ml-2 rounded border border-stone-700 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] text-stone-400">
+                    x{entry.repeatCount}
+                  </span>
+                ) : null}
               </span>
             </div>
           ))}
@@ -1505,46 +1692,16 @@ function SubtaskStatusIcon({ status }: { status: string }) {
    ═══════════════════════════════════════════════════════════ */
 
 function RawLogs({
-  executionId,
+  logs,
+  loading,
   isActive,
 }: {
-  executionId: number;
+  logs: string;
+  loading: boolean;
   isActive: boolean;
 }) {
-  const [logs, setLogs] = useState<string>("Loading raw logs...");
   const [expanded, setExpanded] = useState(false);
   const logRef = useRef<HTMLPreElement>(null);
-
-  useEffect(() => {
-    if (!expanded) return;
-
-    let cancelled = false;
-    async function fetchLogs() {
-      try {
-        const res = await fetch(`/api/orchestrator/tasks/${executionId}/logs`);
-        if (res.ok) {
-          const json = await res.json();
-          if (!cancelled && json.ok) {
-            setLogs(json.data || "Logs are empty.");
-          }
-        }
-      } catch {
-        // Ignore
-      }
-    }
-
-    fetchLogs();
-
-    // Auto-refresh when active
-    let interval: ReturnType<typeof setInterval>;
-    if (isActive) {
-      interval = setInterval(fetchLogs, 5000);
-    }
-    return () => {
-      cancelled = true;
-      if (interval) clearInterval(interval);
-    };
-  }, [executionId, isActive, expanded]);
 
   // Auto-scroll when logs change
   useEffect(() => {
@@ -1588,7 +1745,7 @@ function RawLogs({
             ref={logRef}
             className="p-4 text-xs font-mono text-stone-300 overflow-auto whitespace-pre-wrap leading-relaxed max-h-96"
           >
-            {logs}
+            {loading ? "Loading raw logs..." : logs || "Logs are empty."}
             {isActive && (
               <span className="animate-pulse text-[#E5484D]">_</span>
             )}

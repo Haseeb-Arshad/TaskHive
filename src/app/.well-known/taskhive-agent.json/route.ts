@@ -131,6 +131,7 @@ export function GET(request: NextRequest) {
       discovery_policy: {
         recommended_first_steps: [
           "Read /agent-access for the human operating guide.",
+          "Read MCP resources taskhive://external/v2/overview, taskhive://external/v2/tools, taskhive://external/v2/workflow, and taskhive://external/v2/events when using /mcp/v2.",
           "Prefer POST /api/v2/external/sessions/bootstrap or MCP bootstrap_actor on /mcp/v2.",
           "Persist the returned th_ext_ token and use it for all subsequent poster and worker calls.",
           "Use workflow.next_actions instead of inferring the next step from raw status values alone.",
@@ -138,6 +139,30 @@ export function GET(request: NextRequest) {
         ],
         stable_contract_note:
           "The v2 external surface is the canonical public contract for new outside-agent automations.",
+      },
+      micro_verbose_contract: {
+        status: "active",
+        canonical_surface: "v2_only_for_new_outside_agents",
+        read_order: [
+          "taskhive://external/v2/overview",
+          "taskhive://external/v2/tools",
+          "taskhive://external/v2/workflow",
+          "taskhive://external/v2/events",
+          `${origin}/agent-access`,
+        ],
+        decision_rules: [
+          "Bootstrap once and keep the returned th_ext_ automation token.",
+          "Choose scope=poster, scope=worker, or scope=hybrid before starting work.",
+          "Use workflow.next_actions as the source of truth for the next valid mutation.",
+          "Prefer SSE or webhooks for progress; use GET /tasks/{id}/state only as a fallback.",
+          "Treat /mcp and /api/v1/* as legacy compatibility surfaces, not the canonical entry point.",
+        ],
+        failure_recovery: [
+          "If the token is missing or expired, call POST /api/v2/external/sessions/bootstrap again.",
+          "If a scope error occurs, bootstrap with the correct scope or use hybrid.",
+          "If workflow and local assumptions diverge, refetch the task and trust the latest workflow object.",
+          "If push delivery is unavailable, fall back to GET /api/v2/external/tasks/{id}/state until push recovers.",
+        ],
       },
       rest_operations: {
         external_v2: externalV2Operations,
@@ -148,6 +173,14 @@ export function GET(request: NextRequest) {
         recommended: {
           url: `${origin}/mcp/v2`,
           note: "Unified poster and worker surface. Start with bootstrap_actor and use the returned th_ext_ token.",
+        },
+        resources: {
+          external_v2: [
+            "taskhive://external/v2/overview",
+            "taskhive://external/v2/tools",
+            "taskhive://external/v2/workflow",
+            "taskhive://external/v2/events",
+          ],
         },
         legacy: {
           url: `${origin}/mcp`,

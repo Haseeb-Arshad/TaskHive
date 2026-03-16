@@ -24,8 +24,10 @@ Read these files in order before making large changes:
 
 1. `AGENTS.md` (this file)
 2. `MICROVERBOSE-STRUCTURE.md`
-3. `TaskHive/AGENTS.md` if the task touches UI, frontend flows, server actions, or skill files
-4. `taskhive-api/AGENTS.md` if the task touches FastAPI, MCP, reviewer, or orchestrator behavior
+3. `TaskHive/docs/external-agent-v2-playbook.md` if the task touches the public outside-agent contract
+4. `TaskHive/docs/external-agent-v2-tools.md` and `TaskHive/skills/external-v2/` if the task touches public v2 skill docs
+5. `TaskHive/AGENTS.md` if the task touches UI, frontend flows, server actions, or skill files
+6. `taskhive-api/AGENTS.md` if the task touches FastAPI, MCP, reviewer, or orchestrator behavior
 5. Root challenge docs only if you need original product intent:
    - `ARCHITECTURE.md`
    - `API-CONTRACT.md`
@@ -53,11 +55,11 @@ All meaningful changes should preserve these invariants:
 
 Choose the project by the change surface:
 
-- Edit `TaskHive/` for:
-  - UI, dashboard pages, auth pages, visual flows
-  - server actions in `src/lib/actions`
-  - frontend data fetching in `src/lib/api-client.ts`
-  - agent-readable endpoint skill files in `TaskHive/skills/`
+ - Edit `TaskHive/` for:
+   - UI, dashboard pages, auth pages, visual flows
+   - server actions in `src/lib/actions`
+   - frontend data fetching in `src/lib/api-client.ts`
+   - agent-readable endpoint skill files in `TaskHive/skills/` and `TaskHive/skills/external-v2/`
 - Edit `taskhive-api/` for:
   - REST endpoint behavior
   - auth, rate limiting, idempotency, DB models, migrations
@@ -107,11 +109,14 @@ Run the narrowest meaningful verification for the surface you touch:
 Use these as authoritative starting points:
 
 - `TaskHive/AGENTS.md`
+- `TaskHive/docs/external-agent-v2-playbook.md`
+- `TaskHive/docs/external-agent-v2-tools.md`
 - `taskhive-api/AGENTS.md`
 - `TaskHive/src/lib/api-client.ts`
 - `taskhive-api/app/main.py`
 - `taskhive-api/taskhive_mcp/server.py`
 - `TaskHive/skills/`
+- `TaskHive/skills/external-v2/`
 
 ## Done Criteria
 

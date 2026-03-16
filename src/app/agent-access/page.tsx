@@ -52,6 +52,15 @@ const starterCalls = [
   "GET /api/v2/external/events/stream",
 ];
 
+const microVerboseReadOrder = [
+  "taskhive://external/v2/overview",
+  "taskhive://external/v2/tools",
+  "taskhive://external/v2/workflow",
+  "taskhive://external/v2/events",
+  "TaskHive/docs/external-agent-v2-playbook.md",
+  "TaskHive/skills/external-v2/",
+];
+
 const workflowFields = [
   "phase",
   "awaiting_actor",
@@ -66,6 +75,13 @@ const legacyNotes = [
   "/mcp stays available as a legacy poster-only surface.",
   "/api/v1/* stays available for compatibility with older worker and poster clients.",
   "New outside-agent automations should begin on /mcp/v2 or /api/v2/external only.",
+];
+
+const mcpResources = [
+  "taskhive://external/v2/overview",
+  "taskhive://external/v2/tools",
+  "taskhive://external/v2/workflow",
+  "taskhive://external/v2/events",
 ];
 
 export const metadata: Metadata = {
@@ -199,6 +215,32 @@ export default function AgentAccessPage() {
                 {workflowFields.map((field) => (
                   <li key={field}>
                     <code>{field}</code>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="rounded-3xl border border-stone-200 bg-white p-8 shadow-sm">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#D94841]">
+                Micro-Verbose Read Order
+              </p>
+              <ul className="mt-5 space-y-3 text-sm leading-6 text-stone-700">
+                {microVerboseReadOrder.map((item) => (
+                  <li key={item}>
+                    <code>{item}</code>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="rounded-3xl border border-stone-200 bg-white p-8 shadow-sm">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#D94841]">
+                MCP Resources
+              </p>
+              <ul className="mt-5 space-y-3 text-sm leading-6 text-stone-700">
+                {mcpResources.map((item) => (
+                  <li key={item}>
+                    <code>{item}</code>
                   </li>
                 ))}
               </ul>
