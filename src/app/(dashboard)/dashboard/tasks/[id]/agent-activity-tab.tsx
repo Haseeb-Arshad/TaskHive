@@ -265,7 +265,7 @@ function AgentProcessingSplash({
   const C = 2 * Math.PI * R;
   const dashOffset = C - (C * Math.min(progressPct, 100)) / 100;
 
-  if (typeof progressPct === "number") {
+  if (false && typeof progressPct === "number") {
     return (
       <div className="relative overflow-hidden rounded-[30px] border border-stone-200 bg-[linear-gradient(180deg,#fffdf8_0%,#f8f4ec_100%)] shadow-[0_24px_60px_-34px_rgba(41,37,36,0.25)]">
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -420,42 +420,12 @@ function AgentProcessingSplash({
         }`}
     >
       {/* ── Progress Ring ── */}
-      <div className="relative mb-8">
-        <svg width="60" height="60" className="a-ring-rotate">
-          {/* Background track */}
-          <circle
-            cx="30"
-            cy="30"
-            r={R}
-            fill="none"
-            stroke="#e7e5e4"
-            strokeWidth="3"
-          />
-          {/* Progress arc */}
-          <circle
-            cx="30"
-            cy="30"
-            r={R}
-            fill="none"
-            stroke={currentPhase === "execution" ? "#f59e0b" : "#6366f1"}
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeDasharray={C}
-            strokeDashoffset={progressPct > 0 ? dashOffset : undefined}
-            className={progressPct === 0 ? "a-ring-dash" : ""}
-            style={{
-              transform: "rotate(-90deg)",
-              transformOrigin: "center",
-              transition: "stroke-dashoffset 0.8s ease, stroke 0.5s ease",
-            }}
-          />
-        </svg>
-        {progressPct > 0 && (
-          <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-stone-500">
-            {Math.round(progressPct)}%
-          </span>
-        )}
-      </div>
+      <div className="w-full max-w-3xl rounded-[28px] border border-stone-200 bg-[linear-gradient(180deg,#fffdfa_0%,#f7f4ee_100%)] px-6 py-10 shadow-[0_24px_60px_-36px_rgba(41,37,36,0.24)]">
+        <div className="flex flex-col items-center">
+          <div className="relative mb-8">
+            <div className="h-14 w-14 rounded-full border-4 border-stone-200 border-t-emerald-500 animate-spin" />
+            <span className="absolute inset-0 m-auto h-2.5 w-2.5 rounded-full bg-emerald-500/90" />
+          </div>
 
       {/* ── Animated Dots ── */}
       <div className="mb-6 flex items-center gap-2">
@@ -485,10 +455,45 @@ function AgentProcessingSplash({
       {/* ── Subtitle (live detail from SSE) ── */}
       <p
         key={latestDetail || "waiting"}
-        className="a-text-crossfade max-w-md text-sm leading-relaxed text-stone-400"
+        className="a-text-crossfade max-w-2xl text-sm leading-relaxed text-stone-500"
       >
         {latestDetail || "This usually takes 30\u201360 seconds. Sit tight."}
       </p>
+
+      <div className="mt-6 flex flex-wrap justify-center gap-2">
+        {SPLASH_STAGES.map((stage, index) => {
+          const isDone = index < activeIndex;
+          const isCurrent = index === activeIndex;
+
+          return (
+            <div
+              key={stage.key}
+              className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
+                isCurrent
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                  : isDone
+                    ? "border-stone-300 bg-white text-stone-700"
+                    : "border-stone-200 bg-stone-50 text-stone-400"
+              }`}
+            >
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  isCurrent ? "bg-emerald-500 animate-pulse" : isDone ? "bg-stone-500" : "bg-stone-300"
+                }`}
+              />
+              <span>{stage.label}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      {progressPct > 0 && (
+        <p className="mt-4 text-xs font-semibold uppercase tracking-[0.16em] text-stone-400">
+          {Math.round(progressPct)}% complete
+        </p>
+      )}
+        </div>
+      </div>
     </div>
   );
 }
