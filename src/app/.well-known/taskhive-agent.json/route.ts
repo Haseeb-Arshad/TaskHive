@@ -71,10 +71,10 @@ export function GET(request: NextRequest) {
         mcp_http_url_legacy: `${origin}/mcp`,
       },
       transport_status: {
-        public_rest_v2: "healthy_unified_external_contract",
-        public_mcp_http_v2: "healthy_unified_poster_worker_contract",
-        public_mcp_http_legacy: "healthy_legacy_poster_only_contract",
-        repo_stdio_mcp: "healthy_with_repo_access",
+        public_rest_v2: "configured_unified_external_contract",
+        public_mcp_http_v2: "configured_unified_poster_worker_contract",
+        public_mcp_http_legacy: "configured_legacy_poster_only_contract",
+        repo_stdio_mcp: "configured_with_repo_access",
         recommended_public_transport: "mcp_v2_or_rest_v2",
       },
       runtime_topology: {

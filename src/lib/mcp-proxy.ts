@@ -3,6 +3,47 @@ import { getBackendBaseUrl } from "@/lib/backend-base-url";
 
 const BACKEND_BASE_URL = getBackendBaseUrl();
 
+export function buildMcpUpstreamPath(
+  upstreamPath: string,
+  pathSegments: string[] = [],
+) {
+  const normalizedPath = upstreamPath.replace(/\/+$/, "");
+
+  if (pathSegments.length === 0) {
+    return `${normalizedPath}/`;
+  }
+
+  const suffix = pathSegments.map((segment) => encodeURIComponent(segment)).join("/");
+  return `${normalizedPath}/${suffix}`;
+}
+
+export function buildForwardedHeaders(
+  requestHeaders: Headers,
+  publicUrl: URL,
+) {
+  const headers = new Headers(requestHeaders);
+
+  headers.delete("host");
+  headers.delete("connection");
+  headers.delete("content-length");
+  headers.delete("cf-connecting-ip");
+  headers.delete("cf-ipcountry");
+  headers.delete("cf-ray");
+  headers.delete("cf-visitor");
+  headers.delete("x-vercel-id");
+
+  headers.set("x-forwarded-host", publicUrl.host);
+  headers.set("x-forwarded-proto", publicUrl.protocol.replace(/:$/, ""));
+
+  if (publicUrl.port) {
+    headers.set("x-forwarded-port", publicUrl.port);
+  } else {
+    headers.delete("x-forwarded-port");
+  }
+
+  return headers;
+}
+
 function buildUpstreamUrl(
   request: NextRequest,
   upstreamPath: string,
@@ -10,35 +51,15 @@ function buildUpstreamUrl(
 ) {
   const upstream = new URL(BACKEND_BASE_URL);
   const basePath = upstream.pathname.replace(/\/$/, "");
-  const suffix = pathSegments.length > 0 ? `/${pathSegments.join("/")}` : "";
 
-  upstream.pathname = `${basePath}${upstreamPath}${suffix}`;
+  upstream.pathname = `${basePath}${buildMcpUpstreamPath(upstreamPath, pathSegments)}`;
   upstream.search = request.nextUrl.search;
 
   return upstream;
 }
 
 function copyRequestHeaders(request: NextRequest) {
-  const headers = new Headers(request.headers);
-
-  headers.delete("host");
-  headers.delete("connection");
-  headers.delete("content-length");
-  headers.delete("x-forwarded-host");
-  headers.delete("x-forwarded-port");
-  headers.delete("x-forwarded-proto");
-  headers.delete("x-forwarded-for");
-  headers.delete("x-real-ip");
-  headers.delete("origin");
-  headers.delete("referer");
-  headers.delete("cf-connecting-ip");
-  headers.delete("cf-ipcountry");
-  headers.delete("cf-ray");
-  headers.delete("cf-visitor");
-  headers.delete("x-vercel-forwarded-for");
-  headers.delete("x-vercel-id");
-
-  return headers;
+  return buildForwardedHeaders(request.headers, request.nextUrl);
 }
 
 async function forward(
@@ -76,15 +97,15 @@ async function forward(
       error instanceof Error ? error.message : "Unknown MCP proxy failure";
 
     return NextResponse.json(
-              {
-            ok: false,
-            error: {
-              code: "mcp_proxy_unavailable",
-              message: "Could not reach the upstream MCP server",
-              suggestion: `Check TASKHIVE_BACKEND_URL and confirm the Python backend is serving ${upstreamPath}.`,
-              detail,
-            },
-          },
+      {
+        ok: false,
+        error: {
+          code: "mcp_proxy_unavailable",
+          message: "Could not reach the upstream MCP server",
+          suggestion: `Check TASKHIVE_BACKEND_URL and confirm the Python backend is serving ${upstreamPath}.`,
+          detail,
+        },
+      },
       { status: 502 },
     );
   }
