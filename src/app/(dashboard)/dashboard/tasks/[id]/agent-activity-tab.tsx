@@ -35,50 +35,6 @@ interface SubtaskData {
   files_changed: string[] | null;
 }
 
-function parseStepNumber(step: ProgressStep): number | null {
-  const source = `${step.title} ${step.description} ${step.detail}`;
-  const match = source.match(/\b(?:step|checkpoint)\s+(\d+)\b/i);
-  if (!match) return null;
-
-  const parsed = Number.parseInt(match[1], 10);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function statusWeight(status: string): number {
-  switch (status) {
-    case "failed":
-      return 4;
-    case "completed":
-      return 3;
-    case "in_progress":
-      return 2;
-    default:
-      return 1;
-  }
-}
-
-function mergeRoadmapSubtasks(apiSubtasks: SubtaskData[], derivedSubtasks: SubtaskData[]): SubtaskData[] {
-  if (apiSubtasks.length === 0) return derivedSubtasks;
-  if (derivedSubtasks.length === 0) return apiSubtasks;
-  if (apiSubtasks.length < derivedSubtasks.length) return derivedSubtasks;
-  if (apiSubtasks.length !== derivedSubtasks.length) return apiSubtasks;
-
-  return apiSubtasks.map((subtask, index) => {
-    const fallback = derivedSubtasks[index];
-    if (!fallback) return subtask;
-
-    return {
-      ...subtask,
-      status:
-        statusWeight(fallback.status) > statusWeight(subtask.status)
-          ? fallback.status
-          : subtask.status,
-      result: subtask.result ?? fallback.result,
-      files_changed: subtask.files_changed ?? fallback.files_changed,
-    };
-  });
-}
-
 function deriveSubtasksFromSteps(steps: ProgressStep[]): SubtaskData[] {
   if (steps.length === 0) return [];
 
@@ -100,46 +56,18 @@ function deriveSubtasksFromSteps(steps: ProgressStep[]): SubtaskData[] {
 
     if (titles.length > 0) {
       const latest = steps[steps.length - 1];
-      const donePhases = new Set(["review", "deployment", "delivery", "complete", "completed", "delivered"]);
+      const donePhases = new Set(["delivery", "complete", "completed", "delivered"]);
       const failed = latest.phase === "failed";
       const finished = donePhases.has(latest.phase);
-      let highestStartedStep = 0;
-      let highestCompletedStep = 0;
-
-      for (const step of steps) {
-        const stepNumber = parseStepNumber(step);
-        if (!stepNumber) continue;
-
-        highestStartedStep = Math.max(highestStartedStep, stepNumber);
-
-        const normalized = `${step.title} ${step.description} ${step.detail}`.toLowerCase();
-        if (
-          normalized.includes("committed:") ||
-          /\b(?:step|checkpoint)\s+\d+[^.\n]*(?:complete|completed|committed|finished|done)\b/i.test(normalized)
-        ) {
-          highestCompletedStep = Math.max(highestCompletedStep, stepNumber);
-        }
-      }
-
-      if (finished) {
-        highestCompletedStep = titles.length;
-      }
-
-      const currentStepNumber = Math.min(
-        titles.length,
-        Math.max(1, highestStartedStep || 1),
-      );
-      const completedCount = Math.min(
-        titles.length,
-        finished ? titles.length : Math.max(highestCompletedStep, currentStepNumber - 1),
-      );
 
       return titles.map((title, idx) => {
         let status = "pending";
-        if (idx < completedCount) {
+        if (finished) {
           status = "completed";
-        } else if (!finished && idx === completedCount) {
-          status = failed ? "failed" : "in_progress";
+        } else if (failed && idx === 0) {
+          status = "failed";
+        } else if (idx === 0) {
+          status = "in_progress";
         }
 
         return {
@@ -213,32 +141,7 @@ const SPLASH_HEADINGS: Record<string, string> = {
   delivery: "Preparing delivery\u2026",
 };
 
-const SPLASH_STAGES = [
-  {
-    key: "planning",
-    label: "Plan",
-    caption: "Break the request into stable checkpoints.",
-  },
-  {
-    key: "execution",
-    label: "Build",
-    caption: "Write, test, and adjust the implementation.",
-  },
-  {
-    key: "review",
-    label: "Verify",
-    caption: "Stabilize the result before delivery.",
-  },
-] as const;
-
-const DOT_COLORS = ["#E5484D", "#f59e0b", "#10b981"];
-
-function normalizeSplashStage(phase: string | null): (typeof SPLASH_STAGES)[number]["key"] {
-  if (!phase) return "planning";
-  if (phase === "execution" || phase === "complex_execution") return "execution";
-  if (phase === "review" || phase === "deployment" || phase === "delivery") return "review";
-  return "planning";
-}
+const DOT_COLORS = ["#6366f1", "#8b5cf6", "#a78bfa", "#8b5cf6", "#6366f1"];
 
 /* ═══════════════════════════════════════════════════════════
    AGENT PROCESSING SPLASH
@@ -248,171 +151,19 @@ function AgentProcessingSplash({
   currentPhase,
   latestDetail,
   progressPct,
-  fading = false,
+  fading,
 }: {
   currentPhase: string | null;
   latestDetail: string | null;
   progressPct: number;
-  fading?: boolean;
+  fading: boolean;
 }) {
   const heading = (currentPhase && SPLASH_HEADINGS[currentPhase]) || "Spinning up the agent\u2026";
-  const stageKey = normalizeSplashStage(currentPhase);
-  const activeIndex = SPLASH_STAGES.findIndex((stage) => stage.key === stageKey);
-  const detail =
-    latestDetail ||
-    "Preparing the workspace, collecting context, and lining up the next execution steps.";
+
+  // SVG ring params
   const R = 24;
-  const C = 2 * Math.PI * R;
+  const C = 2 * Math.PI * R; // circumference ~150.8
   const dashOffset = C - (C * Math.min(progressPct, 100)) / 100;
-
-  if (false && typeof progressPct === "number") {
-    return (
-      <div className="relative overflow-hidden rounded-[30px] border border-stone-200 bg-[linear-gradient(180deg,#fffdf8_0%,#f8f4ec_100%)] shadow-[0_24px_60px_-34px_rgba(41,37,36,0.25)]">
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="absolute inset-0 bg-[linear-gradient(rgba(120,113,108,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(120,113,108,0.06)_1px,transparent_1px)] bg-[size:32px_32px]" />
-          <div className="absolute -left-10 top-10 h-40 w-40 rounded-full bg-[#E5484D]/10 blur-3xl a-orbit-drift" />
-          <div className="absolute right-0 top-16 h-52 w-52 rounded-full bg-emerald-500/10 blur-3xl a-orbit-drift-reverse" />
-          <div className="absolute bottom-0 left-1/3 h-32 w-32 rounded-full bg-amber-300/20 blur-3xl a-orbit-drift" />
-        </div>
-
-        <div className="relative grid min-h-[420px] gap-6 px-5 py-6 md:grid-cols-[1.1fr_0.9fr] md:px-7 md:py-7">
-          <div className="flex flex-col justify-between gap-6">
-            <div className="space-y-5">
-              <div className="inline-flex items-center gap-2 rounded-full border border-stone-300/80 bg-white/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
-                <span className="relative flex h-2.5 w-2.5 items-center justify-center">
-                  <span className="absolute h-2.5 w-2.5 rounded-full bg-[#E5484D]/20 a-beacon-ping" />
-                  <span className="relative h-1.5 w-1.5 rounded-full bg-[#E5484D]" />
-                </span>
-                Autonomous Run
-              </div>
-
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">
-                  Live Roadmap
-                </p>
-                <h3
-                  key={currentPhase || "init"}
-                  className="a-text-crossfade mt-3 max-w-[16ch] text-3xl font-semibold tracking-tight text-stone-900 md:text-4xl"
-                >
-                  {heading}
-                </h3>
-                <p
-                  key={latestDetail || "waiting"}
-                  className="a-text-crossfade mt-3 max-w-[56ch] text-sm leading-7 text-stone-600"
-                >
-                  {detail}
-                </p>
-              </div>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-3">
-              {SPLASH_STAGES.map((stage, index) => {
-                const isDone = index < activeIndex;
-                const isCurrent = index === activeIndex;
-
-                return (
-                  <div
-                    key={stage.key}
-                    className={`relative overflow-hidden rounded-[24px] border px-4 py-4 transition-all duration-500 ${
-                      isCurrent
-                        ? "border-[#E5484D]/35 bg-white text-stone-900 shadow-[0_20px_40px_-24px_rgba(229,72,77,0.35)]"
-                        : isDone
-                          ? "border-emerald-200/80 bg-emerald-50/80 text-stone-800"
-                          : "border-stone-200/90 bg-white/70 text-stone-500"
-                    }`}
-                  >
-                    {isCurrent && <div className="a-soft-shimmer absolute inset-0" />}
-                    <div className="relative flex items-center justify-between">
-                      <span className="text-xs font-semibold uppercase tracking-[0.16em]">
-                        {stage.label}
-                      </span>
-                      <span
-                        className={`h-2.5 w-2.5 rounded-full ${
-                          isDone ? "bg-emerald-500" : isCurrent ? "bg-[#E5484D] a-beacon-pulse" : "bg-stone-300"
-                        }`}
-                      />
-                    </div>
-                    <p className="relative mt-3 text-sm leading-6 text-inherit/80">{stage.caption}</p>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="rounded-[28px] border border-stone-200/80 bg-white/75 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)] backdrop-blur-sm md:p-5">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">
-                  Execution Path
-                </p>
-                <p className="mt-1 text-sm text-stone-600">
-                  Progress advances through planning, implementation, and verification.
-                </p>
-              </div>
-              <div className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-sm font-semibold text-stone-700">
-                {Math.round(progressPct)}%
-              </div>
-            </div>
-
-            <div className="relative mt-6">
-              <div className="absolute bottom-8 left-[19px] top-3 w-px bg-[linear-gradient(180deg,rgba(229,72,77,0.18)_0%,rgba(229,72,77,0.75)_45%,rgba(16,185,129,0.35)_100%)]" />
-              <div className="space-y-4">
-                {SPLASH_STAGES.map((stage, index) => {
-                  const isDone = index < activeIndex;
-                  const isCurrent = index === activeIndex;
-
-                  return (
-                    <div key={stage.key} className="relative flex items-start gap-4">
-                      <div
-                        className={`relative mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${
-                          isDone
-                            ? "border-emerald-300 bg-emerald-50"
-                            : isCurrent
-                              ? "border-[#E5484D]/35 bg-[#FFF1F2]"
-                              : "border-stone-200 bg-stone-50"
-                        }`}
-                      >
-                        {isCurrent && <span className="absolute inset-0 rounded-2xl border border-[#E5484D]/25 a-outline-breathe" />}
-                        <span
-                          className={`h-2.5 w-2.5 rounded-full ${
-                            isDone ? "bg-emerald-500" : isCurrent ? "bg-[#E5484D]" : "bg-stone-300"
-                          }`}
-                        />
-                      </div>
-                      <div
-                        className={`min-h-[84px] flex-1 rounded-[22px] border px-4 py-4 transition-all duration-500 ${
-                          isCurrent
-                            ? "border-[#E5484D]/30 bg-white shadow-[0_20px_40px_-30px_rgba(229,72,77,0.45)]"
-                            : "border-stone-200/90 bg-stone-50/80"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-stone-900">{stage.label}</p>
-                            <p className="mt-1 text-sm leading-6 text-stone-600">{stage.caption}</p>
-                          </div>
-                          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-400">
-                            {isDone ? "Done" : isCurrent ? "Live" : "Queued"}
-                          </span>
-                        </div>
-                        <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-stone-200/80">
-                          <div
-                            className={`h-full rounded-full transition-all duration-700 ${
-                              isDone ? "w-full bg-emerald-500" : isCurrent ? "w-2/3 bg-[#E5484D] a-loader-sweep" : "w-1/5 bg-stone-300"
-                            }`}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div
@@ -420,12 +171,42 @@ function AgentProcessingSplash({
         }`}
     >
       {/* ── Progress Ring ── */}
-      <div className="w-full max-w-3xl rounded-[28px] border border-stone-200 bg-[linear-gradient(180deg,#fffdfa_0%,#f7f4ee_100%)] px-6 py-10 shadow-[0_24px_60px_-36px_rgba(41,37,36,0.24)]">
-        <div className="flex flex-col items-center">
-          <div className="relative mb-8">
-            <div className="h-14 w-14 rounded-full border-4 border-stone-200 border-t-emerald-500 animate-spin" />
-            <span className="absolute inset-0 m-auto h-2.5 w-2.5 rounded-full bg-emerald-500/90" />
-          </div>
+      <div className="relative mb-8">
+        <svg width="60" height="60" className="a-ring-rotate">
+          {/* Background track */}
+          <circle
+            cx="30"
+            cy="30"
+            r={R}
+            fill="none"
+            stroke="#e7e5e4"
+            strokeWidth="3"
+          />
+          {/* Progress arc */}
+          <circle
+            cx="30"
+            cy="30"
+            r={R}
+            fill="none"
+            stroke={currentPhase === "execution" ? "#f59e0b" : "#6366f1"}
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeDasharray={C}
+            strokeDashoffset={progressPct > 0 ? dashOffset : undefined}
+            className={progressPct === 0 ? "a-ring-dash" : ""}
+            style={{
+              transform: "rotate(-90deg)",
+              transformOrigin: "center",
+              transition: "stroke-dashoffset 0.8s ease, stroke 0.5s ease",
+            }}
+          />
+        </svg>
+        {progressPct > 0 && (
+          <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-stone-500">
+            {Math.round(progressPct)}%
+          </span>
+        )}
+      </div>
 
       {/* ── Animated Dots ── */}
       <div className="mb-6 flex items-center gap-2">
@@ -455,45 +236,10 @@ function AgentProcessingSplash({
       {/* ── Subtitle (live detail from SSE) ── */}
       <p
         key={latestDetail || "waiting"}
-        className="a-text-crossfade max-w-2xl text-sm leading-relaxed text-stone-500"
+        className="a-text-crossfade max-w-md text-sm leading-relaxed text-stone-400"
       >
         {latestDetail || "This usually takes 30\u201360 seconds. Sit tight."}
       </p>
-
-      <div className="mt-6 flex flex-wrap justify-center gap-2">
-        {SPLASH_STAGES.map((stage, index) => {
-          const isDone = index < activeIndex;
-          const isCurrent = index === activeIndex;
-
-          return (
-            <div
-              key={stage.key}
-              className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
-                isCurrent
-                  ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                  : isDone
-                    ? "border-stone-300 bg-white text-stone-700"
-                    : "border-stone-200 bg-stone-50 text-stone-400"
-              }`}
-            >
-              <span
-                className={`h-2 w-2 rounded-full ${
-                  isCurrent ? "bg-emerald-500 animate-pulse" : isDone ? "bg-stone-500" : "bg-stone-300"
-                }`}
-              />
-              <span>{stage.label}</span>
-            </div>
-          );
-        })}
-      </div>
-
-      {progressPct > 0 && (
-        <p className="mt-4 text-xs font-semibold uppercase tracking-[0.16em] text-stone-400">
-          {Math.round(progressPct)}% complete
-        </p>
-      )}
-        </div>
-      </div>
     </div>
   );
 }
@@ -505,25 +251,28 @@ function AgentProcessingSplash({
 export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) {
   const [executionId, setExecutionId] = useState<number | null>(null);
   const [execution, setExecution] = useState<ExecutionData | null>(null);
-  const [apiSubtasks, setApiSubtasks] = useState<SubtaskData[]>([]);
+  const [subtasks, setSubtasks] = useState<SubtaskData[]>([]);
   const [loading, setLoading] = useState(true);
   const [backendUnavailable, setBackendUnavailable] = useState(false);
   const [selectedPhase, setSelectedPhase] = useState<string | null>(null);
 
+  // Track whether we've received real subtasks from the API (vs derived from SSE phases).
+  // Once the backend returns actual planning subtasks, we never fall back to derivation.
+  const hasApiSubtasks = useRef(false);
+
   const { steps, currentPhase, progressPct, connected } =
     useExecutionProgress(executionId);
-  const derivedSubtasks = useMemo(() => deriveSubtasksFromSteps(steps), [steps]);
-  const subtasks = useMemo(
-    () => mergeRoadmapSubtasks(apiSubtasks, derivedSubtasks),
-    [apiSubtasks, derivedSubtasks],
-  );
 
+  // Derive subtasks from SSE phase steps ONLY as a fallback when the API
+  // hasn't returned real planning subtasks yet.
   useEffect(() => {
-    if (!selectedPhase) return;
-    if (!subtasks.some((subtask) => String(subtask.id) === selectedPhase)) {
-      setSelectedPhase(null);
+    if (hasApiSubtasks.current) return; // Real subtasks from API take priority
+    if (subtasks.length > 0 || steps.length === 0) return;
+    const derived = deriveSubtasksFromSteps(steps);
+    if (derived.length > 0) {
+      setSubtasks(derived);
     }
-  }, [selectedPhase, subtasks]);
+  }, [steps, subtasks.length]);
 
   // Fetch execution data
   useEffect(() => {
@@ -569,9 +318,14 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
 
             if (previewRes?.ok) {
               const preview = await previewRes.json().catch(() => null);
-              const previewSubtasks = preview?.data?.subtasks;
-              if (!cancelled && Array.isArray(previewSubtasks) && previewSubtasks.length > 0) {
-                setApiSubtasks(previewSubtasks);
+              // Only replace subtasks when the API returns a non-empty array.
+              // Empty results (planning not done yet) should NOT clear derived subtasks.
+              const apiSubtasks = preview?.data?.subtasks;
+              if (!cancelled && Array.isArray(apiSubtasks) && apiSubtasks.length > 0) {
+                hasApiSubtasks.current = true;
+                setSubtasks(apiSubtasks);
+                // Reset selection since real subtask IDs differ from derived ones
+                setSelectedPhase(null);
               }
             }
           }
@@ -586,7 +340,7 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
     fetchData();
     // Poll faster while the agent is actively working so checklist/subtask state
     // and execution metadata stay fresh between SSE events.
-    const needsSubtasks = apiSubtasks.length === 0 || apiSubtasks.length < derivedSubtasks.length;
+    const needsSubtasks = !hasApiSubtasks.current;
     const isLivePhase = ["claimed", "in_progress"].includes(taskStatus);
     const pollMs = (taskStatus === "claimed" && !executionId)
       ? 4_000
@@ -598,7 +352,7 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
       cancelled = true;
       clearInterval(interval);
     };
-  }, [taskId, taskStatus, executionId, apiSubtasks.length, derivedSubtasks.length]);
+  }, [taskId, taskStatus, executionId]);
 
   // ── Waiting state ──
   if (taskStatus === "open") {
@@ -638,26 +392,6 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
           `ORCHESTRATOR_API_URL`) on Vercel to your backend URL, then redeploy frontend.
         </p>
       </div>
-    );
-  }
-
-  if (taskStatus === "claimed" && !executionId && !loading) {
-    return (
-      <AgentProcessingSplash
-        currentPhase="planning"
-        latestDetail="The agent has claimed the task and is setting up the execution workspace."
-        progressPct={6}
-      />
-    );
-  }
-
-  if (loading && !executionId) {
-    return (
-      <AgentProcessingSplash
-        currentPhase="planning"
-        latestDetail="Loading execution data and waiting for the first live progress event."
-        progressPct={2}
-      />
     );
   }
 
@@ -917,7 +651,7 @@ function QuestProgress({
                     : isFailed && isCurrent
                       ? "#ef4444"
                       : isCurrent
-                        ? "#E5484D"
+                        ? "#3b82f6"
                         : "#e7e5e4",
                 }}
               />
@@ -959,10 +693,11 @@ function JourneyMap({
   const completedCount = subtasks.filter(s => s.status === "completed").length;
   const progressPct = subtasks.length > 0 ? (completedCount / subtasks.length) * 100 : 0;
 
-  // Keep the SVG geometry hooks above the compact-layout early return.
+  // SVG dimensions — extra horizontal padding so pills at x=150 or x=350 stay in view
   const W = 500;
-  const H = Math.max(420, subtasks.length * 120 + 90);
+  const H = Math.max(600, subtasks.length * 110 + 150);
 
+  // Dynamically calculate checkpoints positions winding back and forth
   const checkpoints = useMemo(() => {
     return subtasks.map((_, i) => ({
       x: i % 2 !== 0 ? 345 : 155,
@@ -970,6 +705,7 @@ function JourneyMap({
     }));
   }, [subtasks]);
 
+  // Build smooth bezier path
   const pathD = useMemo(() => {
     if (checkpoints.length === 0) return "";
     const pts = checkpoints;
@@ -983,102 +719,6 @@ function JourneyMap({
     return d;
   }, [checkpoints]);
 
-  if (subtasks.length <= 2) {
-    return (
-      <div
-        ref={containerRef}
-        className="relative overflow-hidden rounded-[28px] border border-stone-200 bg-[linear-gradient(180deg,#fffdf8_0%,#f7f4ed_100%)] p-5 shadow-[0_24px_60px_-36px_rgba(41,37,36,0.28)]"
-      >
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute inset-0 bg-[linear-gradient(rgba(120,113,108,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(120,113,108,0.05)_1px,transparent_1px)] bg-[size:28px_28px]" />
-          <div className="absolute -right-8 top-0 h-32 w-32 rounded-full bg-[#E5484D]/10 blur-3xl a-orbit-drift" />
-          <div className="absolute bottom-0 left-0 h-32 w-32 rounded-full bg-emerald-500/10 blur-3xl a-orbit-drift-reverse" />
-        </div>
-
-        <div className="relative">
-          <div className="mb-5 flex items-center justify-between gap-4">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">
-                Roadmap
-              </p>
-              <p className="mt-1 text-sm text-stone-600">
-                The roadmap expands as the agent publishes richer planning data.
-              </p>
-            </div>
-            <div className="rounded-full border border-stone-200 bg-white/80 px-3 py-1 text-sm font-semibold text-stone-700">
-              {Math.round(isComplete ? 100 : progressPct)}%
-            </div>
-          </div>
-
-          <div className="relative space-y-4">
-            <div className="absolute bottom-5 left-[19px] top-5 w-px bg-[linear-gradient(180deg,rgba(229,72,77,0.18)_0%,rgba(229,72,77,0.65)_50%,rgba(16,185,129,0.28)_100%)]" />
-            {subtasks.map((subtask, index) => {
-              const isDone = isComplete || subtask.status === "completed";
-              const isCurrent = subtask.status === "in_progress" && !isComplete;
-              const isSelected = String(subtask.id) === selectedPhase;
-
-              return (
-                <button
-                  key={subtask.id}
-                  type="button"
-                  onClick={() => onSelectPhase(String(subtask.id))}
-                  className={`relative flex w-full items-start gap-4 rounded-[24px] border px-4 py-4 text-left transition-all duration-300 ${
-                    isSelected
-                      ? "border-[#E5484D]/35 bg-white shadow-[0_20px_50px_-32px_rgba(229,72,77,0.45)]"
-                      : "border-stone-200/90 bg-white/80 hover:border-stone-300 hover:bg-white"
-                  }`}
-                >
-                  {isCurrent && <span className="pointer-events-none absolute inset-0 rounded-[24px] a-soft-shimmer" />}
-                  <div
-                    className={`relative mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${
-                      isDone
-                        ? "border-emerald-300 bg-emerald-50"
-                        : isCurrent
-                          ? "border-[#E5484D]/35 bg-[#FFF1F2]"
-                          : "border-stone-200 bg-stone-50"
-                    }`}
-                  >
-                    {isCurrent && <span className="absolute inset-0 rounded-2xl border border-[#E5484D]/25 a-outline-breathe" />}
-                    <span
-                      className={`h-2.5 w-2.5 rounded-full ${
-                        isDone ? "bg-emerald-500" : isCurrent ? "bg-[#E5484D]" : "bg-stone-300"
-                      }`}
-                    />
-                  </div>
-
-                  <div className="relative min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-stone-900">
-                          Checkpoint {index + 1}
-                        </p>
-                        <p className="mt-1 text-base font-medium leading-6 text-stone-700">
-                          {subtask.title}
-                        </p>
-                      </div>
-                      <span className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-500">
-                        {isDone ? "Done" : isCurrent ? "Live" : "Queued"}
-                      </span>
-                    </div>
-
-                    {subtask.description ? (
-                      <p className="mt-3 line-clamp-2 text-sm leading-6 text-stone-600">
-                        {subtask.description}
-                      </p>
-                    ) : (
-                      <p className="mt-3 text-sm leading-6 text-stone-500">
-                        This checkpoint will fill in with more detail as the agent reports progress.
-                      </p>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   // For the dashed completed trail we use a clip rect approach that actually works:
   // We draw the same dashed path but clip it to a rectangle covering the top N% of the SVG height
@@ -1087,8 +727,8 @@ function JourneyMap({
   return (
     <div
       ref={containerRef}
-      className="relative overflow-hidden rounded-[28px] border border-stone-200 bg-[linear-gradient(180deg,#fffdf8_0%,#f7f4ed_100%)] shadow-[0_24px_60px_-36px_rgba(41,37,36,0.28)]"
-      style={{ minHeight: 420 }}
+      className="relative overflow-hidden rounded-2xl border border-stone-200 bg-[#f8fafc]"
+      style={{ minHeight: 500 }}
     >
       {/* Background decorations */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -1164,7 +804,6 @@ function JourneyMap({
           strokeDasharray="12 8"
           strokeLinecap="round"
           clipPath="url(#jm-progress-clip)"
-          className={isActive ? "a-route-flow" : ""}
         />
 
         {/* Checkpoint nodes */}
@@ -1185,7 +824,7 @@ function JourneyMap({
               {(isDone || isCurrent) && (
                 <g transform={`translate(${pt.x + 18}, ${pt.y - 42})`}>
                   <line x1="0" y1="0" x2="0" y2="38" stroke="#78716c" strokeWidth="2" strokeLinecap="round" />
-                  <path d="M 0 0 L 14 5 L 0 10 Z" fill={isCurrent ? "#E5484D" : "#10b981"} />
+                  <path d="M 0 0 L 14 5 L 0 10 Z" fill="#10b981" />
                 </g>
               )}
 
@@ -1208,7 +847,7 @@ function JourneyMap({
                   height="30"
                   rx="15"
                   fill="white"
-                  stroke={isSelected ? "#E5484D" : "#e7e5e4"}
+                  stroke={isSelected ? "#10b981" : "#e7e5e4"}
                   strokeWidth={isSelected ? "2" : "1"}
                   filter={isSelected ? "url(#jm-glow)" : "drop-shadow(0 2px 6px rgba(0,0,0,0.06))"}
                 />
@@ -1218,7 +857,7 @@ function JourneyMap({
                   cx="-57"
                   cy="0"
                   r="10"
-                  fill={isDone ? "#10b981" : isCurrent ? "#E5484D" : "#f5f5f4"}
+                  fill={isDone ? "#10b981" : isCurrent ? "#3b82f6" : "#f5f5f4"}
                 />
                 {isDone && (
                   <path
@@ -1242,7 +881,7 @@ function JourneyMap({
                     fontSize="11"
                     fontWeight="600"
                     fontFamily="system-ui, -apple-system, sans-serif"
-                    fill={isDone ? "#059669" : isCurrent ? "#b42318" : "#78716c"}
+                    fill={isDone ? "#059669" : isCurrent ? "#2563eb" : "#78716c"}
                   >
                     {label}
                   </text>
@@ -1251,7 +890,7 @@ function JourneyMap({
 
               {/* Pulse ring for active node — pure SVG animation */}
               {isCurrent && isActive && (
-                <circle cx={pt.x - 57} cy={pt.y} r="10" fill="none" stroke="#E5484D" strokeWidth="1.5" opacity="0">
+                <circle cx={pt.x - 57} cy={pt.y} r="10" fill="none" stroke="#3b82f6" strokeWidth="1.5" opacity="0">
                   <animate attributeName="r" from="10" to="20" dur="1.5s" repeatCount="indefinite" />
                   <animate attributeName="opacity" from="0.7" to="0" dur="1.5s" repeatCount="indefinite" />
                 </circle>
@@ -1520,7 +1159,7 @@ function CheckpointDetail({
                     style={{
                       background:
                         i === phaseSteps.length - 1 && isCurrent
-                          ? "#E5484D"
+                          ? "#3b82f6"
                           : isDone
                             ? "#10b981"
                             : "#d6d3d1",
@@ -1796,7 +1435,7 @@ function SubtaskStatusIcon({ status }: { status: string }) {
   );
 }
 
-function _PhaseIconSVG({ phase, color }: { phase: string; color: string }) {
+function PhaseIconSVG({ phase, color }: { phase: string; color: string }) {
   const props = {
     width: "16",
     height: "16",
@@ -1920,7 +1559,7 @@ function RawLogs({
       >
         <div className="flex items-center gap-2">
           <p className="text-[10px] font-bold uppercase tracking-[.12em] text-stone-400">
-            Diagnostic Timeline & Raw Command Output
+            Internal Agent Logs & Debug Output
           </p>
           {isActive && (
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
@@ -1940,9 +1579,6 @@ function RawLogs({
 
       {expanded && (
         <div className="border-t border-stone-100 p-0 bg-black rounded-b-xl overflow-hidden">
-          <div className="border-b border-stone-800 bg-stone-950 px-4 py-2 text-[11px] text-stone-400">
-            The roadmap above is the human summary. This panel is low-level command output for debugging.
-          </div>
           <pre
             ref={logRef}
             className="p-4 text-xs font-mono text-stone-300 overflow-auto whitespace-pre-wrap leading-relaxed max-h-96"
