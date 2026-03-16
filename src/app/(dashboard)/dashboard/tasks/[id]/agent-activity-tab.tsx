@@ -141,7 +141,7 @@ const SPLASH_HEADINGS: Record<string, string> = {
   delivery: "Preparing delivery\u2026",
 };
 
-const DOT_COLORS = ["#6366f1", "#8b5cf6", "#a78bfa", "#8b5cf6", "#6366f1"];
+const DOT_COLORS = ["#E5484D", "#F0707A", "#E5484D", "#DC3B42", "#E5484D"];
 
 /* ═══════════════════════════════════════════════════════════
    AGENT PROCESSING SPLASH
@@ -188,7 +188,7 @@ function AgentProcessingSplash({
             cy="30"
             r={R}
             fill="none"
-            stroke={currentPhase === "execution" ? "#f59e0b" : "#6366f1"}
+            stroke={currentPhase === "execution" ? "#DC3B42" : "#E5484D"}
             strokeWidth="3"
             strokeLinecap="round"
             strokeDasharray={C}
@@ -228,7 +228,7 @@ function AgentProcessingSplash({
       <p
         key={currentPhase || "init"}
         className="a-text-crossfade mb-2 text-2xl font-medium text-stone-700"
-        style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}
+        style={{ fontFamily: "var(--font-display), Georgia, serif" }}
       >
         {heading}
       </p>
@@ -399,11 +399,11 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
     return (
       <div className="flex flex-col items-center justify-center px-6 py-20 text-center">
         <div className="relative mb-6">
-          <div className="h-14 w-14 rounded-full border-4 border-emerald-200 border-t-emerald-500 animate-spin" />
+          <div className="h-14 w-14 rounded-full border-4 border-red-100 border-t-[#E5484D] animate-spin" />
         </div>
         <p
           className="mb-2 text-2xl font-medium text-stone-700"
-          style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}
+          style={{ fontFamily: "var(--font-display), Georgia, serif" }}
         >
           Claim accepted — spinning up&hellip;
         </p>
@@ -418,7 +418,7 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
   if (loading && !executionId) {
     return (
       <div className="flex flex-col items-center justify-center px-6 py-20 text-center animate-pulse">
-        <div className="mb-4 h-12 w-12 rounded-full border-4 border-stone-200 border-t-emerald-500 animate-spin" />
+        <div className="mb-4 h-12 w-12 rounded-full border-4 border-stone-200 border-t-[#E5484D] animate-spin" />
         <p className="text-sm font-semibold text-stone-700">Loading activity...</p>
       </div>
     );
@@ -651,7 +651,7 @@ function QuestProgress({
                     : isFailed && isCurrent
                       ? "#ef4444"
                       : isCurrent
-                        ? "#3b82f6"
+                        ? "#E5484D"
                         : "#e7e5e4",
                 }}
               />
@@ -727,7 +727,7 @@ function JourneyMap({
   return (
     <div
       ref={containerRef}
-      className="relative overflow-hidden rounded-2xl border border-stone-200 bg-[#f8fafc]"
+      className="relative overflow-hidden rounded-2xl border border-stone-200 bg-[#FAF9F7]"
       style={{ minHeight: 500 }}
     >
       {/* Background decorations */}
@@ -857,7 +857,7 @@ function JourneyMap({
                   cx="-57"
                   cy="0"
                   r="10"
-                  fill={isDone ? "#10b981" : isCurrent ? "#3b82f6" : "#f5f5f4"}
+                  fill={isDone ? "#10b981" : isCurrent ? "#E5484D" : "#f5f5f4"}
                 />
                 {isDone && (
                   <path
@@ -881,7 +881,7 @@ function JourneyMap({
                     fontSize="11"
                     fontWeight="600"
                     fontFamily="system-ui, -apple-system, sans-serif"
-                    fill={isDone ? "#059669" : isCurrent ? "#2563eb" : "#78716c"}
+                    fill={isDone ? "#059669" : isCurrent ? "#E5484D" : "#78716c"}
                   >
                     {label}
                   </text>
@@ -890,7 +890,7 @@ function JourneyMap({
 
               {/* Pulse ring for active node — pure SVG animation */}
               {isCurrent && isActive && (
-                <circle cx={pt.x - 57} cy={pt.y} r="10" fill="none" stroke="#3b82f6" strokeWidth="1.5" opacity="0">
+                <circle cx={pt.x - 57} cy={pt.y} r="10" fill="none" stroke="#E5484D" strokeWidth="1.5" opacity="0">
                   <animate attributeName="r" from="10" to="20" dur="1.5s" repeatCount="indefinite" />
                   <animate attributeName="opacity" from="0.7" to="0" dur="1.5s" repeatCount="indefinite" />
                 </circle>
@@ -1026,7 +1026,7 @@ function CheckpointDetail({
             className={`rounded-full px-3 py-1 text-xs font-semibold ${isDone
               ? "bg-emerald-500 text-white"
               : isCurrent
-                ? "bg-blue-500 text-white"
+                ? "bg-[#E5484D] text-white"
                 : "bg-stone-200 text-stone-500"
               }`}
           >
@@ -1108,8 +1108,8 @@ function CheckpointDetail({
           {subtask.files_changed && subtask.files_changed.length > 0 && (
             <div className="mt-3">
               <div className="flex items-center gap-2 mb-2">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /></svg>
-                <p className="text-[10px] font-bold uppercase tracking-[.12em] text-blue-600">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-stone-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /></svg>
+                <p className="text-[10px] font-bold uppercase tracking-[.12em] text-stone-500">
                   Files Changed ({subtask.files_changed.length})
                 </p>
               </div>
@@ -1117,7 +1117,7 @@ function CheckpointDetail({
                 {subtask.files_changed.map((f: string, j: number) => (
                   <span
                     key={j}
-                    className="rounded-md bg-blue-50 border border-blue-100 px-2 py-1 text-[10px] font-mono text-blue-700"
+                    className="rounded-md bg-stone-50 border border-stone-200 px-2 py-1 text-[10px] font-mono text-stone-600"
                   >
                     {f.split("/").pop()}
                   </span>
@@ -1137,7 +1137,7 @@ function CheckpointDetail({
         {/* Thinking / status text for current step */}
         {isCurrent && phaseSteps.length > 0 && (
           <div className="mt-4 flex items-center gap-2 rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-600 border border-stone-200">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#E5484D]" />
             <span className="animate-pulse">{phaseSteps[phaseSteps.length - 1].description || phaseSteps[phaseSteps.length - 1].detail}</span>
           </div>
         )}
@@ -1159,7 +1159,7 @@ function CheckpointDetail({
                     style={{
                       background:
                         i === phaseSteps.length - 1 && isCurrent
-                          ? "#3b82f6"
+                          ? "#E5484D"
                           : isDone
                             ? "#10b981"
                             : "#d6d3d1",

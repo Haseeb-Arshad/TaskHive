@@ -125,8 +125,8 @@ export function EvaluationCard({
   return (
     <div className="rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">
       {/* ── Header ─────────────────────────────── */}
-      <div className="flex items-center gap-3 bg-gradient-to-r from-blue-50 to-sky-50 border-b border-blue-100 px-5 py-3.5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-200 text-sm font-bold text-blue-800">
+      <div className="flex items-center gap-3 bg-gradient-to-r from-stone-50 to-stone-100/80 border-b border-stone-200 px-5 py-3.5">
+        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-stone-200 text-sm font-bold text-stone-700">
           {(remark.agent_name || "A").charAt(0).toUpperCase()}
         </div>
         <div className="flex-1 min-w-0">
@@ -134,7 +134,7 @@ export function EvaluationCard({
             <span className="text-sm font-semibold text-stone-900">
               {remark.agent_name || "Agent"}
             </span>
-            <span className="rounded-full bg-blue-200/70 px-2 py-0.5 text-[10px] font-bold text-blue-800">
+            <span className="rounded-full bg-[#FFF1F2] px-2 py-0.5 text-[10px] font-bold text-[#E5484D]">
               Evaluation
             </span>
           </div>
@@ -275,7 +275,7 @@ export function EvaluationCard({
                 <button
                   onClick={handleSubmit}
                   disabled={isPending || unansweredCount > 0}
-                  className="rounded-full bg-blue-600 px-5 py-2 text-xs font-bold text-white shadow-sm transition-all hover:bg-blue-700 hover:shadow-md disabled:opacity-40"
+                  className="rounded-full bg-[#E5484D] px-5 py-2 text-xs font-bold text-white shadow-sm transition-all hover:bg-[#DC3B42] hover:shadow-md disabled:opacity-40"
                 >
                   {isPending ? "Submitting..." : `Submit ${Object.keys(selections).length} answer${Object.keys(selections).length !== 1 ? "s" : ""}`}
                 </button>
@@ -308,7 +308,7 @@ export function EvaluationCard({
                   </p>
                   {getResolvedAnswer(q) ? (
                     <div className="pl-6 border-l-2 border-stone-200 mt-2">
-                      <p className="text-sm text-blue-700 font-semibold">{getResolvedAnswer(q)}</p>
+                      <p className="text-sm text-[#E5484D] font-semibold">{getResolvedAnswer(q)}</p>
                     </div>
                   ) : (
                     <div className="pl-6 mt-1">
@@ -409,7 +409,7 @@ function McqInput({
             disabled={disabled}
             onClick={() => toggleOption(option)}
             className={`w-full rounded-xl border px-4 py-2.5 text-left text-sm transition-all ${isSelected
-              ? "border-blue-400 bg-blue-50 text-blue-700 ring-1 ring-blue-200"
+              ? "border-[#E5484D]/40 bg-[#FFF1F2] text-[#E5484D] ring-1 ring-[#E5484D]/20"
               : "border-stone-200 bg-white text-stone-700 hover:border-stone-300 hover:bg-stone-50"
               } disabled:opacity-50`}
           >
@@ -417,7 +417,7 @@ function McqInput({
               {/* Square checkbox to signal multi-select */}
               <span
                 className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 text-[10px] ${isSelected
-                  ? "border-blue-600 bg-blue-600 text-white"
+                  ? "border-[#E5484D] bg-[#E5484D] text-white"
                   : "border-stone-300"
                   }`}
               >
@@ -455,7 +455,7 @@ function TextInput({
       disabled={disabled}
       rows={2}
       placeholder={placeholder || "Type your answer..."}
-      className="w-full rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800 placeholder:text-stone-400 transition-colors focus:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:opacity-50 resize-none"
+      className="w-full rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800 placeholder:text-stone-400 transition-colors focus:border-[#E5484D]/40 focus:outline-none focus:ring-2 focus:ring-[#E5484D]/10 disabled:opacity-50 resize-none"
     />
   );
 }
@@ -487,7 +487,7 @@ function ScaleInput({
             disabled={disabled}
             onClick={() => onChange(String(step))}
             className={`flex-1 rounded-lg border py-2 text-sm font-semibold transition-all ${selected === step
-              ? "border-blue-400 bg-blue-100 text-blue-800 ring-1 ring-blue-200"
+              ? "border-[#E5484D]/40 bg-[#FFF1F2] text-[#E5484D] ring-1 ring-[#E5484D]/20"
               : "border-stone-200 bg-white text-stone-500 hover:border-stone-300 hover:bg-stone-50"
               } disabled:opacity-50`}
           >
