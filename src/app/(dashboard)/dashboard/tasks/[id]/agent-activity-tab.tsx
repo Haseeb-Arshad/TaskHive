@@ -483,43 +483,55 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
     );
 
   return (
-    <div className="p-5">
+    <div className="p-6">
       {/* ── Header ── */}
-      <div className="mb-5 flex items-center justify-between">
+      <div className="a-fade mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span
-            className={`h-3 w-3 rounded-full ${isComplete
-              ? "bg-emerald-500"
-              : isFailed
-                ? "bg-red-500"
-                : "bg-[#E5484D] animate-pulse"
-              }`}
-          />
-          <span className="text-sm font-semibold text-stone-800">
-            {isComplete
-              ? "Agent completed your task"
-              : isFailed
-                ? "Execution failed"
-                : "Agent is working on your task"}
-          </span>
-          {connected && isActive && (
-            <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">
-              LIVE
+          <div className={`flex h-8 w-8 items-center justify-center rounded-xl ${isComplete
+            ? "bg-emerald-100"
+            : isFailed
+              ? "bg-red-100"
+              : "bg-[#FFF1F2]"
+            }`}>
+            {isComplete ? (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-4 w-4 text-emerald-600"><polyline points="20 6 9 17 4 12" /></svg>
+            ) : isFailed ? (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-4 w-4 text-red-500"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+            ) : (
+              <span className="relative flex h-3 w-3">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#E5484D] opacity-40" />
+                <span className="relative inline-flex h-3 w-3 rounded-full bg-[#E5484D]" />
+              </span>
+            )}
+          </div>
+          <div>
+            <span className="text-sm font-semibold text-stone-800">
+              {isComplete
+                ? "Agent completed your task"
+                : isFailed
+                  ? "Execution failed"
+                  : "Agent is working on your task"}
             </span>
-          )}
+            {connected && isActive && (
+              <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold text-emerald-600">
+                <span className="h-1 w-1 rounded-full bg-emerald-500 animate-pulse" />
+                LIVE
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-4 text-xs text-stone-400">
           {elapsed > 0 && (
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1.5 rounded-lg bg-stone-50 border border-stone-100 px-2.5 py-1">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3">
                 <circle cx="12" cy="12" r="10" />
                 <path d="M12 6v6l4 2" />
               </svg>
-              {elapsedStr}
+              <span className="font-medium text-stone-500">{elapsedStr}</span>
             </span>
           )}
           {execution?.total_tokens_used ? (
-            <span>{(execution.total_tokens_used / 1000).toFixed(1)}k tokens</span>
+            <span className="rounded-lg bg-stone-50 border border-stone-100 px-2.5 py-1 font-medium text-stone-500">{(execution.total_tokens_used / 1000).toFixed(1)}k tokens</span>
           ) : null}
         </div>
       </div>
@@ -533,7 +545,7 @@ export function AgentActivityTab({ taskId, taskStatus }: AgentActivityTabProps) 
       />
 
       {/* ── Journey Map + Detail split ── */}
-      <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-5">
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-5">
         {/* Left: Interactive journey map */}
         <div className="lg:col-span-3">
           <JourneyMap
@@ -606,22 +618,27 @@ function QuestProgress({
   const completedSteps = subtasks.filter(s => s.status === "completed").length;
 
   return (
-    <div className="rounded-xl border border-stone-200 bg-white p-4">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-[10px] font-bold uppercase tracking-[.12em] text-stone-400">
-          Quest Progress
-        </span>
-        <span className="text-xs font-semibold text-stone-500">
+    <div className="a-fade rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-stone-100">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-stone-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>
+          </div>
+          <span className="text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">
+            Quest Progress
+          </span>
+        </div>
+        <span className={`rounded-lg px-2.5 py-1 text-xs font-bold ${isComplete ? "bg-emerald-50 text-emerald-600" : isFailed ? "bg-red-50 text-red-600" : "bg-stone-50 text-stone-600"}`}>
           {Math.round(isComplete ? 100 : progressPct)}%
         </span>
       </div>
 
       <p
-        className={`mb-3 text-sm font-bold ${isComplete
+        className={`mb-4 text-sm font-semibold ${isComplete
           ? "text-emerald-600"
           : isFailed
             ? "text-red-600"
-            : "text-stone-800"
+            : "text-stone-700"
           }`}
       >
         {isComplete
@@ -632,7 +649,7 @@ function QuestProgress({
       </p>
 
       {/* Segmented progress */}
-      <div className="flex gap-1">
+      <div className="flex gap-1.5">
         {subtasks.map((sub) => {
           const isDone = isComplete || sub.status === "completed";
           const isCurrent = sub.status === "in_progress" && !isComplete;
@@ -640,12 +657,12 @@ function QuestProgress({
           return (
             <div
               key={sub.id}
-              className="h-2.5 flex-1 overflow-hidden rounded-full bg-stone-100"
+              className="h-3 flex-1 overflow-hidden rounded-full bg-stone-100"
             >
               <div
                 className="h-full rounded-full transition-all duration-700 ease-out"
                 style={{
-                  width: isDone ? "100%" : isCurrent ? "50%" : "0%", // Simple 50% for in_progress steps
+                  width: isDone ? "100%" : isCurrent ? "50%" : "0%",
                   backgroundColor: isComplete || isDone
                     ? "#10b981"
                     : isFailed && isCurrent
@@ -1018,37 +1035,41 @@ function CheckpointDetail({
   if (!subtask) return null;
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* Phase header card */}
-      <div className="rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <span
-            className={`rounded-full px-3 py-1 text-xs font-semibold ${isDone
-              ? "bg-emerald-500 text-white"
-              : isCurrent
-                ? "bg-[#E5484D] text-white"
-                : "bg-stone-200 text-stone-500"
-              }`}
-          >
-            {isDone ? "Completed" : isCurrent ? "In Progress" : "Pending"}
-          </span>
-          {isDone && (
-            <span className="text-xs text-stone-400">
-              <svg xmlns="http://www.w3.org/2000/svg" className="inline-block mr-1 h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
-              Today
+    <div className="flex flex-col gap-5">
+      {/* ── Checkpoint header card ── */}
+      <div className="a-fade rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
+        {/* Status row */}
+        <div className="mb-5 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${isDone
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : isCurrent
+                  ? "border-[#E5484D]/20 bg-[#FFF1F2] text-[#E5484D]"
+                  : "border-stone-200 bg-stone-50 text-stone-500"
+                }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${isDone ? "bg-emerald-500" : isCurrent ? "bg-[#E5484D] animate-pulse" : "bg-stone-300"}`} />
+              {isDone ? "Completed" : isCurrent ? "In Progress" : "Pending"}
             </span>
-          )}
+            <span className="rounded-lg bg-stone-100 px-2 py-0.5 text-[10px] font-bold text-stone-500">
+              {activeSubtaskIndex + 1}/{subtasks.length}
+            </span>
+          </div>
         </div>
 
-        <h3 className="mb-4 text-base font-bold text-stone-800">
-          Checkpoint {activeSubtaskIndex + 1}: {subtask.title}
+        {/* Checkpoint title */}
+        <h3 className="mb-5 font-[family-name:var(--font-display)] text-lg leading-snug text-stone-900">
+          {subtask.title}
         </h3>
 
-        {/* Implementation steps — rendered from description */}
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 mb-2">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-stone-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>
-            <p className="text-[10px] font-bold uppercase tracking-[.12em] text-stone-400">
+        {/* ── Implementation Plan ── */}
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-stone-100">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-stone-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>
+            </div>
+            <p className="text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">
               Implementation Plan
             </p>
           </div>
@@ -1058,10 +1079,10 @@ function CheckpointDetail({
               {descSteps.items.map((step, i) => (
                 <div
                   key={i}
-                  className="flex items-start gap-3 rounded-lg border border-stone-100 bg-stone-50/80 px-3 py-2.5"
+                  className="flex items-start gap-3 rounded-xl border border-stone-100 bg-stone-50/60 px-4 py-3 transition-colors hover:border-stone-200"
                 >
                   {descSteps.type === "checklist" ? (
-                    <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[9px] font-bold ${step.checked
+                    <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 text-[9px] font-bold ${step.checked
                         ? "border-emerald-300 bg-emerald-100 text-emerald-700"
                         : "border-stone-300 bg-white text-stone-400"
                       }`}>
@@ -1072,148 +1093,181 @@ function CheckpointDetail({
                       {i + 1}
                     </span>
                   )}
-                  <p className="text-xs leading-relaxed text-stone-700">{step.text}</p>
+                  <p className="text-sm leading-relaxed text-stone-700">{step.text}</p>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="rounded-lg border border-stone-100 bg-stone-50/80 p-3">
+            <div className="rounded-xl border border-stone-100 bg-stone-50/60 p-4">
               {descSteps.items.map((line, i) => (
-                <p key={i} className="text-xs leading-relaxed text-stone-700 mb-1 last:mb-0">
+                <p key={i} className="text-sm leading-relaxed text-stone-700 mb-1 last:mb-0">
                   {line.text}
                 </p>
               ))}
               {descSteps.items.length === 0 && (
-                <p className="text-xs text-stone-400 italic">No description available</p>
+                <p className="text-sm text-stone-400 italic">No description available yet</p>
               )}
-            </div>
-          )}
-
-          {/* Result — what the agent actually did */}
-          {subtask.result && (
-            <div className="mt-3">
-              <div className="flex items-center gap-2 mb-2">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
-                <p className="text-[10px] font-bold uppercase tracking-[.12em] text-emerald-600">
-                  Result
-                </p>
-              </div>
-              <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3">
-                <p className="text-xs leading-relaxed text-emerald-900 whitespace-pre-wrap">{subtask.result}</p>
-              </div>
-            </div>
-          )}
-
-          {/* Files changed */}
-          {subtask.files_changed && subtask.files_changed.length > 0 && (
-            <div className="mt-3">
-              <div className="flex items-center gap-2 mb-2">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-stone-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /></svg>
-                <p className="text-[10px] font-bold uppercase tracking-[.12em] text-stone-500">
-                  Files Changed ({subtask.files_changed.length})
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {subtask.files_changed.map((f: string, j: number) => (
-                  <span
-                    key={j}
-                    className="rounded-md bg-stone-50 border border-stone-200 px-2 py-1 text-[10px] font-mono text-stone-600"
-                  >
-                    {f.split("/").pop()}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {isDone && (
-            <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 font-medium mt-3">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12" /></svg>
-              Checkpoint completed successfully
             </div>
           )}
         </div>
 
-        {/* Thinking / status text for current step */}
+        {/* ── Result ── */}
+        {subtask.result && (
+          <div className="mt-5 pt-5 border-t border-stone-100">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-100">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
+              </div>
+              <p className="text-[11px] font-bold uppercase tracking-[.12em] text-emerald-600">
+                Result
+              </p>
+            </div>
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4">
+              <p className="text-sm leading-relaxed text-emerald-900 whitespace-pre-wrap">{subtask.result}</p>
+            </div>
+          </div>
+        )}
+
+        {/* ── Files changed ── */}
+        {subtask.files_changed && subtask.files_changed.length > 0 && (
+          <div className="mt-5 pt-5 border-t border-stone-100">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-stone-100">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-stone-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /></svg>
+              </div>
+              <p className="text-[11px] font-bold uppercase tracking-[.12em] text-stone-500">
+                Files Changed
+              </p>
+              <span className="rounded-full bg-stone-100 px-1.5 py-0.5 text-[10px] font-bold text-stone-500">
+                {subtask.files_changed.length}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {subtask.files_changed.map((f: string, j: number) => (
+                <span
+                  key={j}
+                  className="rounded-lg bg-stone-50 border border-stone-200 px-2.5 py-1 text-[11px] font-mono text-stone-600"
+                >
+                  {f.split("/").pop()}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Completion banner ── */}
+        {isDone && (
+          <div className="mt-5 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12" /></svg>
+            </div>
+            <span className="text-sm font-semibold text-emerald-800">Checkpoint completed successfully</span>
+          </div>
+        )}
+
+        {/* ── Live thinking indicator ── */}
         {isCurrent && phaseSteps.length > 0 && (
-          <div className="mt-4 flex items-center gap-2 rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-600 border border-stone-200">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#E5484D]" />
-            <span className="animate-pulse">{phaseSteps[phaseSteps.length - 1].description || phaseSteps[phaseSteps.length - 1].detail}</span>
+          <div className="mt-5 flex items-center gap-3 rounded-xl border border-[#E5484D]/15 bg-[#FFF1F2]/60 px-4 py-3">
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#E5484D] opacity-40" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#E5484D]" />
+            </span>
+            <span className="text-xs leading-relaxed text-stone-600">
+              {phaseSteps[phaseSteps.length - 1].description || phaseSteps[phaseSteps.length - 1].detail}
+            </span>
           </div>
         )}
       </div>
 
-      {/* Agent's thinking process timeline */}
+      {/* ── Agent&apos;s Thinking Process ── */}
       {phaseSteps.length > 0 && (
-        <div className="rounded-xl border border-stone-200 bg-white p-4">
-          <p className="mb-3 text-[10px] font-bold uppercase tracking-[.12em] text-stone-400">
-            Agent&apos;s Thinking Process
-          </p>
-          <div className="space-y-0">
-            {phaseSteps.map((step, i) => (
-              <div key={i} className="flex gap-3">
-                {/* Timeline line */}
-                <div className="flex flex-col items-center">
-                  <div
-                    className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{
-                      background:
-                        i === phaseSteps.length - 1 && isCurrent
-                          ? "#E5484D"
-                          : isDone
-                            ? "#10b981"
-                            : "#d6d3d1",
-                    }}
-                  />
-                  {i < phaseSteps.length - 1 && (
+        <div className="a-fade rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
+          <div className="mb-5 flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-stone-100">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-stone-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+            </div>
+            <p className="text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">
+              Agent&apos;s Thinking Process
+            </p>
+            <span className="rounded-full bg-stone-100 px-1.5 py-0.5 text-[10px] font-bold text-stone-500">
+              {phaseSteps.length}
+            </span>
+          </div>
+
+          <div className="relative ml-1">
+            {phaseSteps.map((step, i) => {
+              const isLastStep = i === phaseSteps.length - 1;
+              const dotColor = isLastStep && isCurrent
+                ? "#E5484D"
+                : isDone
+                  ? "#10b981"
+                  : "#d6d3d1";
+              const lineColor = isDone ? "#d1fae5" : "#f5f5f4";
+
+              return (
+                <div key={i} className="flex gap-4 group">
+                  {/* Timeline rail */}
+                  <div className="flex flex-col items-center">
                     <div
-                      className="w-px flex-1"
-                      style={{
-                        background: isDone ? "#a7f3d0" : "#e7e5e4",
-                        minHeight: 20,
-                      }}
+                      className="mt-1.5 h-3 w-3 shrink-0 rounded-full ring-[3px] ring-white transition-transform group-hover:scale-110"
+                      style={{ background: dotColor }}
                     />
-                  )}
-                </div>
-                {/* Content */}
-                <div className="pb-3 min-w-0">
-                  <p className="text-xs font-semibold text-stone-700">
-                    {step.title || step.description}
-                  </p>
-                  {step.detail && step.detail !== step.title && (
-                    <p className="mt-0.5 text-[11px] leading-relaxed text-stone-500">
-                      {step.detail}
-                    </p>
-                  )}
-                  {step.metadata &&
-                    Object.keys(step.metadata).length > 0 && (
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {Object.entries(step.metadata)
-                          .slice(0, 4)
-                          .map(([k, v]) => (
-                            <span
-                              key={k}
-                              className="rounded-md bg-stone-100 px-1.5 py-0.5 text-[9px] font-medium text-stone-500"
-                            >
-                              {k}: {String(v)}
-                            </span>
-                          ))}
-                      </div>
+                    {!isLastStep && (
+                      <div
+                        className="w-0.5 flex-1 rounded-full"
+                        style={{ background: lineColor, minHeight: 28 }}
+                      />
                     )}
+                  </div>
+
+                  {/* Content */}
+                  <div className="pb-5 min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-stone-800 leading-snug">
+                      {step.title || step.description}
+                    </p>
+                    {step.detail && step.detail !== step.title && (
+                      <p className="mt-1 text-xs leading-relaxed text-stone-500">
+                        {step.detail}
+                      </p>
+                    )}
+                    {step.metadata &&
+                      Object.keys(step.metadata).length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {Object.entries(step.metadata)
+                            .slice(0, 4)
+                            .map(([k, v]) => (
+                              <span
+                                key={k}
+                                className="rounded-lg border border-stone-100 bg-stone-50 px-2 py-0.5 text-[10px] font-medium text-stone-500"
+                              >
+                                {k}: {String(v)}
+                              </span>
+                            ))}
+                        </div>
+                      )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* Empty state for pending phases */}
+      {/* ── Empty state for pending phases ── */}
       {isPending && phaseSteps.length === 0 && (
-        <div className="rounded-xl border border-dashed border-stone-200 bg-stone-50/50 px-4 py-8 text-center">
-          <p className="text-xs text-stone-400">
-            This checkpoint hasn&apos;t started yet.
+        <div className="rounded-2xl border-2 border-dashed border-stone-200 bg-stone-50/50 px-6 py-10 text-center">
+          <div className="mb-3 mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-stone-100">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-5 w-5 text-stone-400">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 6v6l4 2" />
+            </svg>
+          </div>
+          <p className="text-sm font-semibold text-stone-600">
+            This checkpoint hasn&apos;t started yet
           </p>
-          <p className="mt-1 text-[11px] text-stone-300">
+          <p className="mt-1 text-xs text-stone-400">
             The agent will reach here after completing previous steps.
           </p>
         </div>
@@ -1231,13 +1285,16 @@ function SubtasksList({ subtasks }: { subtasks: SubtaskData[] }) {
   const completedCount = subtasks.filter((s) => s.status === "completed").length;
 
   return (
-    <div className="mt-5 rounded-xl border border-stone-200 bg-white">
+    <div className="mt-5 rounded-2xl border border-stone-200 bg-white shadow-sm">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center justify-between px-5 py-3.5 text-left"
+        className="flex w-full items-center justify-between px-6 py-4 text-left transition-colors hover:bg-stone-50/50 rounded-2xl"
       >
         <div className="flex items-center gap-2">
-          <p className="text-[10px] font-bold uppercase tracking-[.12em] text-stone-400">
+          <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-stone-100">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-stone-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 12h6M9 16h4M9 8h6"/></svg>
+          </div>
+          <p className="text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">
             Execution Subtasks
           </p>
           <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-bold text-stone-500">
@@ -1250,18 +1307,18 @@ function SubtasksList({ subtasks }: { subtasks: SubtaskData[] }) {
           fill="none"
           stroke="currentColor"
           strokeWidth="2"
-          className={`h-4 w-4 text-stone-400 transition-transform ${expanded ? "rotate-180" : ""}`}
+          className={`h-4 w-4 text-stone-400 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
         >
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>
 
       {expanded && (
-        <div className="border-t border-stone-100 px-5 py-3 space-y-2">
+        <div className="border-t border-stone-100 px-6 py-4 space-y-2">
           {subtasks.map((sub) => (
             <div
               key={sub.id}
-              className="flex items-start gap-3 rounded-xl border border-stone-100 px-4 py-3 transition-colors hover:border-stone-200"
+              className="flex items-start gap-3 rounded-xl border border-stone-100 bg-stone-50/40 px-4 py-3 transition-all hover:border-stone-200 hover:bg-stone-50"
             >
               <div className="mt-0.5">
                 <SubtaskStatusIcon status={sub.status} />
@@ -1280,13 +1337,13 @@ function SubtasksList({ subtasks }: { subtasks: SubtaskData[] }) {
                     {sub.files_changed.slice(0, 4).map((f, i) => (
                       <span
                         key={i}
-                        className="rounded-md bg-stone-100 px-1.5 py-0.5 text-[10px] font-mono text-stone-500"
+                        className="rounded-lg border border-stone-100 bg-white px-1.5 py-0.5 text-[10px] font-mono text-stone-500"
                       >
                         {f.split("/").pop()}
                       </span>
                     ))}
                     {sub.files_changed.length > 4 && (
-                      <span className="rounded-md bg-stone-100 px-1.5 py-0.5 text-[10px] text-stone-400">
+                      <span className="rounded-lg border border-stone-100 bg-white px-1.5 py-0.5 text-[10px] text-stone-400">
                         +{sub.files_changed.length - 4} more
                       </span>
                     )}
@@ -1324,14 +1381,22 @@ function ActivityLog({
   if (recentActivity.length === 0) return null;
 
   return (
-    <div className="mt-5">
-      <p className="mb-2 text-[10px] font-bold uppercase tracking-[.12em] text-stone-400">
-        Activity Log
-      </p>
-      <div className="overflow-hidden rounded-xl border border-stone-100 bg-stone-900">
+    <div className="mt-5 rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2 px-5 py-3.5 border-b border-stone-100">
+        <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-stone-100">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-stone-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></svg>
+        </div>
+        <p className="text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">
+          Activity Log
+        </p>
+        {isActive && (
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#E5484D]" />
+        )}
+      </div>
+      <div className="bg-[#1C1917]">
         <div
           ref={logRef}
-          className="max-h-52 overflow-y-auto p-4 font-mono text-xs leading-relaxed"
+          className="max-h-56 overflow-y-auto p-4 font-mono text-xs leading-relaxed"
         >
           {recentActivity.map((step, i) => (
             <div key={i} className="flex items-start gap-2 py-0.5">
@@ -1352,7 +1417,7 @@ function ActivityLog({
           {isActive && (
             <div className="flex items-center gap-1 py-0.5 text-stone-500">
               <span className="select-none">$</span>
-              <span className="animate-pulse">_</span>
+              <span className="animate-pulse text-[#E5484D]">_</span>
             </div>
           )}
         </div>
@@ -1435,69 +1500,6 @@ function SubtaskStatusIcon({ status }: { status: string }) {
   );
 }
 
-function PhaseIconSVG({ phase, color }: { phase: string; color: string }) {
-  const props = {
-    width: "16",
-    height: "16",
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: color,
-    strokeWidth: "2",
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-  };
-
-  switch (phase) {
-    case "search":
-      return (
-        <svg {...props}>
-          <circle cx="11" cy="11" r="8" />
-          <path d="m21 21-4.3-4.3" />
-        </svg>
-      );
-    case "chat":
-      return (
-        <svg {...props}>
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-        </svg>
-      );
-    case "plan":
-      return (
-        <svg {...props}>
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <polyline points="14 2 14 8 20 8" />
-          <line x1="16" y1="13" x2="8" y2="13" />
-          <line x1="16" y1="17" x2="8" y2="17" />
-        </svg>
-      );
-    case "code":
-      return (
-        <svg {...props}>
-          <polyline points="16 18 22 12 16 6" />
-          <polyline points="8 6 2 12 8 18" />
-        </svg>
-      );
-    case "check":
-      return (
-        <svg {...props}>
-          <path d="M9 11l3 3L22 4" />
-          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-        </svg>
-      );
-    case "package":
-      return (
-        <svg {...props}>
-          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-          <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-          <line x1="12" y1="22.08" x2="12" y2="12" />
-        </svg>
-      );
-    default:
-      return null;
-  }
-}
-
-
 /* ═══════════════════════════════════════════════════════════
    RAW LOGS VIEWER
    ═══════════════════════════════════════════════════════════ */
@@ -1552,17 +1554,20 @@ function RawLogs({
   }, [logs, expanded]);
 
   return (
-    <div className="mt-5 rounded-xl border border-stone-200 bg-white">
+    <div className="mt-5 rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center justify-between px-5 py-3.5 text-left transition-colors hover:bg-stone-50 rounded-xl"
+        className="flex w-full items-center justify-between px-6 py-4 text-left transition-colors hover:bg-stone-50/50"
       >
         <div className="flex items-center gap-2">
-          <p className="text-[10px] font-bold uppercase tracking-[.12em] text-stone-400">
-            Internal Agent Logs & Debug Output
+          <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-stone-100">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-stone-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>
+          </div>
+          <p className="text-[11px] font-bold uppercase tracking-[.12em] text-stone-400">
+            Internal Agent Logs
           </p>
           {isActive && (
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#E5484D]" />
           )}
         </div>
         <svg
@@ -1571,21 +1576,21 @@ function RawLogs({
           fill="none"
           stroke="currentColor"
           strokeWidth="2"
-          className={`h-4 w-4 text-stone-400 transition-transform ${expanded ? "rotate-180" : ""}`}
+          className={`h-4 w-4 text-stone-400 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
         >
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </button>
 
       {expanded && (
-        <div className="border-t border-stone-100 p-0 bg-black rounded-b-xl overflow-hidden">
+        <div className="border-t border-stone-100 bg-[#1C1917]">
           <pre
             ref={logRef}
             className="p-4 text-xs font-mono text-stone-300 overflow-auto whitespace-pre-wrap leading-relaxed max-h-96"
           >
             {logs}
             {isActive && (
-              <span className="animate-pulse text-emerald-500">_</span>
+              <span className="animate-pulse text-[#E5484D]">_</span>
             )}
           </pre>
         </div>
