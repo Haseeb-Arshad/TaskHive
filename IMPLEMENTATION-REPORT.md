@@ -1,6 +1,8 @@
-# TaskHive — Implementation Report
+# TaskHive - Implementation Report
 
 > **Live Deployment:** [https://task-hive-sigma.vercel.app/](https://task-hive-sigma.vercel.app/)
+>
+> **Current workspace note:** This report reflects the original submission narrative. For the current checked-in repo boundary, start with [`README.md`](./README.md) and [`docs/frontend-implementation-deep-dive.md`](./docs/frontend-implementation-deep-dive.md). In the active workspace, `TaskHive/` is the frontend/proxy/docs repository and `taskhive-api/` is the authoritative runtime for REST, MCP, reviewer, and orchestrator behavior.
 
 ---
 
